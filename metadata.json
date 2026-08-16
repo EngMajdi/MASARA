@@ -1,0 +1,6 @@
+{
+  "name": "مَسارَا MASARA - AI School Transportation Agent",
+  "description": "منظومة مَسارَا الذكية لإدارة وحوكمة وتحسين مسارات النقل المدرسي باستخدام وكيل الذكاء الاصطناعي",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
