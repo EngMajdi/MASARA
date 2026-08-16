@@ -46,6 +46,7 @@ function logEvent(
     newState: opts.newState ?? null,
     metadata: opts.metadata ? JSON.stringify(opts.metadata) : null,
     agentRunId: rec.agentRunId,
+    tripId: rec.tripId,
     inputSummary: `${eventType} — recommendation ${rec.id} (trip ${rec.tripId})`,
     detectedProblem: rec.problem,
     predictionId: rec.predictionId,

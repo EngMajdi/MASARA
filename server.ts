@@ -10,6 +10,8 @@ import {
   INITIAL_WORKFLOW_STEPS
 } from './src/mockData';
 import { agentRouter } from './server/routes/agentRoutes';
+import { simulationRouter } from './server/routes/simulationRoutes';
+import { operationsRouter } from './server/routes/operationsRoutes';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -19,6 +21,9 @@ app.use(express.json());
 // New governance-layer API (DB-backed: trips/predictions/recommendations/audit log).
 // Additive only — does not touch any of the in-memory routes below (Phase 1 scope).
 app.use(agentRouter);
+// Phase 2B: Simulation Engine + AI Operations Feed — likewise additive.
+app.use(simulationRouter);
+app.use(operationsRouter);
 
 // In-memory application state
 let schools = [...INITIAL_SCHOOLS];
@@ -411,19 +416,18 @@ ${schoolStudents
       }
     }
 
-    // Update system notifications & routes efficiency score
-    routes = routes.map((r) => ({
-      ...r,
-      aiEfficiencyScore: Math.min(100, r.aiEfficiencyScore + 4),
-      carbonSavedKg: Number((r.carbonSavedKg + 1.2).toFixed(1)),
-      aiRationaleAr: resultJson.summaryAr
-    }));
-
+    // Analysis-only (Phase 2B governance fix): this endpoint used to write
+    // aiEfficiencyScore/carbonSavedKg/aiRationaleAr directly onto `routes`
+    // straight from an LLM response, with no policy check, no approval, no
+    // audit trail. It now only returns the AI's analysis; nothing here
+    // mutates operational route state. Applying a real route change goes
+    // through the governed path: MasaraOperationsAgent -> PolicyEngine ->
+    // Approval Center -> ActionExecutor (see server/routes/agentRoutes.ts).
     const newNotif = {
       id: `notif-${Date.now()}`,
       timestamp: new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }),
-      title: 'تم تحديث التحسين الذكي للمسارات (MASARA AI)',
-      message: resultJson.summaryAr,
+      title: 'تحليل ذكي جديد لتحسين المسارات (MASARA AI)',
+      message: `${resultJson.summaryAr} — هذا تحليل استرشادي، ولم يُطبَّق تلقائياً على المسارات.`,
       type: 'info' as const,
       targetRole: 'all' as const,
       read: false
@@ -488,16 +492,18 @@ app.post('/api/ai/detect-reroute', async (req, res) => {
       }
     }
 
-    // Update bus state
-    targetBus.nextStopEtaMins = rerouteData.newEtaMins;
-    targetBus.status = 'en_route_school';
-
-    // Broadcast parent & driver alert
+    // Analysis-only (Phase 2B governance fix): this endpoint used to write
+    // nextStopEtaMins/status directly onto the target bus straight from an
+    // LLM response, with no policy check, no approval, no audit trail. It
+    // now only returns the AI's suggested reroute plan; nothing here mutates
+    // bus/trip state. Applying a real reroute goes through the governed
+    // path: MasaraOperationsAgent -> PolicyEngine -> Approval Center ->
+    // ActionExecutor (see server/routes/agentRoutes.ts).
     const newNotif = {
       id: `notif-${Date.now()}`,
       timestamp: new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }),
-      title: rerouteData.rerouteTitleAr,
-      message: rerouteData.parentAlertMessage,
+      title: `اقتراح إعادة توجيه: ${rerouteData.rerouteTitleAr}`,
+      message: `${rerouteData.parentAlertMessage} — هذا اقتراح استرشادي بانتظار مراجعة المشرف، ولم يُطبَّق تلقائياً.`,
       type: 'alert' as const,
       targetRole: 'all' as const,
       read: false
@@ -627,23 +633,21 @@ ${targetBuses
       }
     }
 
-    // Apply predicted ETAs to active buses in memory
-    predictionResult.predictions.forEach((pred: any) => {
-      const matchBus = buses.find((b) => b.id === pred.busId || b.busNumber === pred.busNumber);
-      if (matchBus) {
-        matchBus.nextStopEtaMins = pred.predictedEtaMins;
-      }
-    });
-
-    // Send high-priority notification to parents & admins
-    const notifTitle = `تحديث توقعات ETA الذكية - ${
+    // Analysis-only (Phase 2B governance fix): this endpoint used to write
+    // predictedEtaMins directly onto every matching bus straight from an
+    // LLM/heuristic response, with no policy check, no approval, no audit
+    // trail. It now only returns the predicted ETAs; nothing here mutates
+    // bus state. A real ETA-driven action goes through the governed path:
+    // MasaraOperationsAgent -> PredictionEngine -> PolicyEngine -> Approval
+    // Center -> ActionExecutor (see server/routes/agentRoutes.ts).
+    const notifTitle = `تحليل توقعات ETA الذكية - ${
       level === 'smooth' ? 'مرور سلس' : level === 'moderate' ? 'ازدحام متوسط' : 'ازدحام مروري كثيف'
     }`;
     const newNotif = {
       id: `notif-eta-${Date.now()}`,
       timestamp: new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }),
       title: notifTitle,
-      message: predictionResult.trafficConditionSummaryAr,
+      message: `${predictionResult.trafficConditionSummaryAr} — تحليل استرشادي، لم يُطبَّق تلقائياً على الحافلات.`,
       type: (level === 'smooth' ? 'success' : level === 'moderate' ? 'info' : 'warning') as any,
       targetRole: 'all' as const,
       read: false

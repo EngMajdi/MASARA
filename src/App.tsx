@@ -18,6 +18,8 @@ import { NotificationsModal } from './components/NotificationsModal';
 import { AdvisorModal } from './components/AdvisorModal';
 import { DataManagementModal } from './components/DataManagementModal';
 import { ApprovalCenter } from './components/ApprovalCenter';
+import { SimulationCenter } from './components/SimulationCenter';
+import { AIOperationsFeed } from './components/AIOperationsFeed';
 import { AuthModal, AuthUser } from './components/AuthModal';
 import { Map, ChevronDown, ChevronUp } from 'lucide-react';
 
@@ -51,6 +53,8 @@ export default function App() {
   const [showAdvisorModal, setShowAdvisorModal] = useState(false);
   const [showDataManagementModal, setShowDataManagementModal] = useState(false);
   const [showApprovalCenter, setShowApprovalCenter] = useState(false);
+  const [showSimulationCenter, setShowSimulationCenter] = useState(false);
+  const [showOperationsFeed, setShowOperationsFeed] = useState(false);
   const [isMapExpanded, setIsMapExpanded] = useState(true);
 
   // Realtime Sync Indicators
@@ -252,6 +256,8 @@ export default function App() {
         onOpenAdvisor={() => setShowAdvisorModal(true)}
         onOpenDataManagement={() => setShowDataManagementModal(true)}
         onOpenApprovalCenter={() => setShowApprovalCenter(true)}
+        onOpenSimulationCenter={() => setShowSimulationCenter(true)}
+        onOpenOperationsFeed={() => setShowOperationsFeed(true)}
         currentUser={currentUser}
         onOpenAuthModal={() => setShowAuthModal(true)}
         onLogout={handleLogout}
@@ -378,6 +384,22 @@ export default function App() {
       <ApprovalCenter
         isOpen={showApprovalCenter}
         onClose={() => setShowApprovalCenter(false)}
+        currentUser={currentUser}
+      />
+
+      <SimulationCenter
+        isOpen={showSimulationCenter}
+        onClose={() => setShowSimulationCenter(false)}
+        currentUser={currentUser}
+        onOpenApprovalCenter={() => {
+          setShowSimulationCenter(false);
+          setShowApprovalCenter(true);
+        }}
+      />
+
+      <AIOperationsFeed
+        isOpen={showOperationsFeed}
+        onClose={() => setShowOperationsFeed(false)}
         currentUser={currentUser}
       />
     </div>

@@ -19,7 +19,9 @@ import {
   RefreshCw,
   KeyRound,
   ArrowLeftRight,
-  ShieldAlert
+  ShieldAlert,
+  Gauge,
+  Radio
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -30,6 +32,8 @@ interface HeaderProps {
   onOpenAdvisor: () => void;
   onOpenDataManagement: () => void;
   onOpenApprovalCenter: () => void;
+  onOpenSimulationCenter: () => void;
+  onOpenOperationsFeed: () => void;
   currentUser: AuthUser | null;
   onOpenAuthModal: () => void;
   onLogout: () => void;
@@ -45,6 +49,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAdvisor,
   onOpenDataManagement,
   onOpenApprovalCenter,
+  onOpenSimulationCenter,
+  onOpenOperationsFeed,
   currentUser,
   onOpenAuthModal,
   onLogout,
@@ -139,6 +145,28 @@ export const Header: React.FC<HeaderProps> = ({
               <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
               <span className="hidden xs:inline">مركز الموافقات</span>
               <span className="xs:hidden">الموافقات</span>
+            </button>
+          )}
+
+          {canApprove && (
+            <button
+              onClick={onOpenSimulationCenter}
+              className="flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-2.5 py-1 rounded-lg transition-all text-xs font-semibold shadow-2xs shrink-0 min-h-[32px]"
+            >
+              <Gauge className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="hidden xs:inline">محاكاة مَسارَا</span>
+              <span className="xs:hidden">المحاكاة</span>
+            </button>
+          )}
+
+          {canApprove && (
+            <button
+              onClick={onOpenOperationsFeed}
+              className="flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 px-2.5 py-1 rounded-lg transition-all text-xs font-semibold shadow-2xs shrink-0 min-h-[32px]"
+            >
+              <Radio className="w-3.5 h-3.5 text-slate-600" />
+              <span className="hidden xs:inline">عمليات الذكاء الاصطناعي</span>
+              <span className="xs:hidden">العمليات</span>
             </button>
           )}
 

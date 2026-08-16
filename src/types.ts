@@ -207,6 +207,56 @@ export interface GovernedPrediction {
   riskLevel: string;
 }
 
+// --- Phase 2B: Simulation Engine + AI Operations Feed ---
+
+export type SimulationStatus = 'IDLE' | 'RUNNING' | 'PAUSED' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+export type ScenarioId = 'TRAFFIC_DELAY' | 'MINOR_DELAY' | 'NORMAL_TRIP' | 'SAFETY_INCIDENT';
+
+export interface SimulationStepResult {
+  stepIndex: number;
+  eventType: string;
+  label: string;
+  simulatedTime: string;
+  payload: Record<string, unknown>;
+  waitingForApproval: boolean;
+}
+
+export interface SimulationSession {
+  id: string;
+  scenario: ScenarioId;
+  status: SimulationStatus;
+  tripId: string;
+  busId: string;
+  createdBy: string;
+  startedAt: string;
+  completedAt: string | null;
+  currentStep: number;
+  totalSteps: number;
+  simulatedTime: string;
+  recommendationId: string | null;
+  lastResult: SimulationStepResult | null;
+  errorMessage: string | null;
+}
+
+export type FeedCategory = 'all' | 'ai' | 'trips' | 'approvals' | 'actions' | 'verification' | 'safety';
+
+export interface OperationsFeedEvent {
+  id: string;
+  eventType: string;
+  category: FeedCategory;
+  label: string;
+  actorId: string | null;
+  actorType: string;
+  entityType: string;
+  entityId: string | null;
+  tripId: string | null;
+  recommendationId: string | null;
+  previousState: string | null;
+  newState: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
 export interface AuditEvent {
   id: string;
   eventType: string;

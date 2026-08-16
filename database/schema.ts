@@ -257,10 +257,16 @@ export const auditLogs = sqliteTable(
     operatorDecision: text('operator_decision'),
     actionId: text('action_id').references(() => actions.id),
     verificationId: text('verification_id').references(() => actionVerifications.id),
+    // Phase 2B: denormalized trip reference so the Operations Feed can filter
+    // by trip with a plain indexed query instead of joining through
+    // recommendationId -> ai_recommendations.tripId for every row (spec §54,
+    // "avoid N+1 API requests").
+    tripId: text('trip_id').references(() => trips.id),
     createdAt: createdAt(),
   },
   (table) => ({
     recommendationIdx: index('audit_logs_recommendation_idx').on(table.recommendationId),
     entityIdx: index('audit_logs_entity_idx').on(table.entityType, table.entityId),
+    tripIdx: index('audit_logs_trip_idx').on(table.tripId, table.createdAt),
   })
 );
