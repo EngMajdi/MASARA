@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core';
 
 // All IDs are UUID strings (text) and all tables carry created_at/updated_at,
 // matching a shape that transfers directly to Postgres (uuid + timestamptz)
@@ -161,26 +161,50 @@ export const predictions = sqliteTable('predictions', {
   createdAt: createdAt(),
 });
 
-// action: 'CHANGE_ROUTE' | 'NOTIFY_SCHOOL' | 'FLAG_INCIDENT' | 'NO_ACTION'
-// status: 'pending' | 'approved' | 'rejected'
-export const aiRecommendations = sqliteTable('ai_recommendations', {
-  id: id(),
-  tripId: text('trip_id').notNull().references(() => trips.id),
-  agentRunId: text('agent_run_id').notNull(),
-  severity: text('severity').notNull(),
-  problem: text('problem').notNull(),
-  predictionId: text('prediction_id').references(() => predictions.id),
-  action: text('action').notNull(),
-  targetId: text('target_id'),
-  reason: text('reason').notNull(),
-  requiresApproval: integer('requires_approval', { mode: 'boolean' }).notNull().default(true),
-  status: text('status').notNull().default('pending'),
-  decidedByUserId: text('decided_by_user_id').references(() => users.id),
-  decidedAt: integer('decided_at', { mode: 'timestamp' }),
-  rejectionReason: text('rejection_reason'),
-  createdAt: createdAt(),
-  updatedAt: updatedAt(),
-});
+// action (recommendedAction): 'CHANGE_ROUTE' | 'NOTIFY_SCHOOL' | 'FLAG_INCIDENT' | 'NO_ACTION'
+// type (category): 'DELAY' | 'ROUTE_CHANGE' | 'SAFETY_ALERT' | 'PARENT_NOTIFICATION' | 'MONITORING'
+//   (subset of the spec's suggested type list — only categories this system's
+//   action set can actually produce; unused categories like STOP_CHANGE/
+//   BUS_REASSIGNMENT/DRIVER_ALERT are intentionally not implemented, per
+//   "do not implement unnecessary recommendation types")
+// severity (== riskLevel): 'low' | 'medium' | 'high' | 'critical'
+// status (state machine — see server/domain/StateMachine.ts):
+//   'pending' | 'approved' | 'rejected' | 'expired' | 'cancelled'
+//   | 'executed' | 'execution_failed' | 'verified' | 'verification_failed'
+export const aiRecommendations = sqliteTable(
+  'ai_recommendations',
+  {
+    id: id(),
+    tripId: text('trip_id').notNull().references(() => trips.id),
+    // Denormalized snapshot of the trip's bus/route at generation time — kept
+    // stable for audit/display even if the trip is later reassigned.
+    busId: text('bus_id').references(() => buses.id),
+    sourceRouteId: text('source_route_id').references(() => routes.id),
+    agentRunId: text('agent_run_id').notNull(),
+    type: text('type').notNull(),
+    title: text('title').notNull(),
+    severity: text('severity').notNull(),
+    problem: text('problem').notNull(),
+    predictionId: text('prediction_id').references(() => predictions.id),
+    confidence: real('confidence').notNull(),
+    action: text('action').notNull(),
+    targetId: text('target_id'),
+    reason: text('reason').notNull(),
+    expectedOutcome: text('expected_outcome'),
+    requiresApproval: integer('requires_approval', { mode: 'boolean' }).notNull().default(true),
+    status: text('status').notNull().default('pending'),
+    expiresAt: integer('expires_at', { mode: 'timestamp' }),
+    decidedByUserId: text('decided_by_user_id').references(() => users.id),
+    decidedAt: integer('decided_at', { mode: 'timestamp' }),
+    rejectionReason: text('rejection_reason'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => ({
+    tripStatusIdx: index('ai_recommendations_trip_status_idx').on(table.tripId, table.status),
+    statusIdx: index('ai_recommendations_status_idx').on(table.status),
+  })
+);
 
 // The only table written to as a direct consequence of an approved AI recommendation.
 export const actions = sqliteTable('actions', {
@@ -205,15 +229,38 @@ export const actionVerifications = sqliteTable('action_verifications', {
   createdAt: createdAt(),
 });
 
-export const auditLogs = sqliteTable('audit_logs', {
-  id: id(),
-  agentRunId: text('agent_run_id'),
-  inputSummary: text('input_summary').notNull(),
-  detectedProblem: text('detected_problem'),
-  predictionId: text('prediction_id').references(() => predictions.id),
-  recommendationId: text('recommendation_id').references(() => aiRecommendations.id),
-  operatorDecision: text('operator_decision'),
-  actionId: text('action_id').references(() => actions.id),
-  verificationId: text('verification_id').references(() => actionVerifications.id),
-  createdAt: createdAt(),
-});
+// eventType: 'RECOMMENDATION_CREATED' | 'RECOMMENDATION_CANCELLED' | 'POLICY_EVALUATED'
+//   | 'APPROVAL_REQUESTED' | 'REVIEW_REQUESTED' | 'APPROVED' | 'REJECTED' | 'EXPIRED'
+//   | 'ACTION_STARTED' | 'ACTION_COMPLETED' | 'ACTION_FAILED'
+//   | 'VERIFICATION_STARTED' | 'VERIFICATION_COMPLETED' | 'VERIFICATION_FAILED'
+// actorType: 'system' | 'agent' | 'user'
+export const auditLogs = sqliteTable(
+  'audit_logs',
+  {
+    id: id(),
+    // Generic event-tracing fields (Phase 2A) — immutable, append-only from
+    // normal application flows (no UPDATE/DELETE route exists for this table).
+    eventType: text('event_type').notNull().default('AGENT_RUN'),
+    actorId: text('actor_id').references(() => users.id),
+    actorType: text('actor_type').notNull().default('system'),
+    entityType: text('entity_type').notNull().default('ai_recommendation'),
+    entityId: text('entity_id'),
+    previousState: text('previous_state'),
+    newState: text('new_state'),
+    metadata: text('metadata'),
+    // Original Phase 1 fields — kept as-is, still populated for MASARA-specific context.
+    agentRunId: text('agent_run_id'),
+    inputSummary: text('input_summary').notNull(),
+    detectedProblem: text('detected_problem'),
+    predictionId: text('prediction_id').references(() => predictions.id),
+    recommendationId: text('recommendation_id').references(() => aiRecommendations.id),
+    operatorDecision: text('operator_decision'),
+    actionId: text('action_id').references(() => actions.id),
+    verificationId: text('verification_id').references(() => actionVerifications.id),
+    createdAt: createdAt(),
+  },
+  (table) => ({
+    recommendationIdx: index('audit_logs_recommendation_idx').on(table.recommendationId),
+    entityIdx: index('audit_logs_entity_idx').on(table.entityType, table.entityId),
+  })
+);

@@ -761,7 +761,7 @@ export const AdminAIAgentPortal: React.FC<AdminAIAgentPortalProps> = ({
                           {busInfo?.routeNameAr || 'مسار حافلة مدرسة المسار'}
                         </div>
                         <div className="text-[10px] text-slate-500">
-                          سائق: {busInfo?.driverName || 'سالم العبري'}
+                          سائق: سالم العبري
                         </div>
                       </div>
                     </div>

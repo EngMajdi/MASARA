@@ -1,4 +1,4 @@
-import { RiskLevel } from '../../engines/PredictionEngine';
+import { EffectiveRiskLevel } from '../../engines/PredictionEngine';
 import { StructuredRecommendation } from './recommendationSchema';
 
 export interface RecommendationContext {
@@ -8,11 +8,13 @@ export interface RecommendationContext {
   driverName: string;
   delayMinutes: number;
   delayProbability: number;
-  riskLevel: RiskLevel;
+  /** 'critical' is applied by the Agent from open safety incidents, not by PredictionEngine's ETA math. */
+  riskLevel: EffectiveRiskLevel;
   alternativeRouteId?: string;
   alternativeRouteName?: string;
   alternativeImprovementMins?: number;
   openIncidentDescriptions: string[];
+  hasSafetyIncident: boolean;
 }
 
 export interface LLMProvider {

@@ -17,6 +17,7 @@ import { AdminAIAgentPortal } from './components/AdminAIAgentPortal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { AdvisorModal } from './components/AdvisorModal';
 import { DataManagementModal } from './components/DataManagementModal';
+import { ApprovalCenter } from './components/ApprovalCenter';
 import { AuthModal, AuthUser } from './components/AuthModal';
 import { Map, ChevronDown, ChevronUp } from 'lucide-react';
 
@@ -49,6 +50,7 @@ export default function App() {
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [showAdvisorModal, setShowAdvisorModal] = useState(false);
   const [showDataManagementModal, setShowDataManagementModal] = useState(false);
+  const [showApprovalCenter, setShowApprovalCenter] = useState(false);
   const [isMapExpanded, setIsMapExpanded] = useState(true);
 
   // Realtime Sync Indicators
@@ -249,6 +251,7 @@ export default function App() {
         onOpenNotifications={() => setShowNotificationsModal(true)}
         onOpenAdvisor={() => setShowAdvisorModal(true)}
         onOpenDataManagement={() => setShowDataManagementModal(true)}
+        onOpenApprovalCenter={() => setShowApprovalCenter(true)}
         currentUser={currentUser}
         onOpenAuthModal={() => setShowAuthModal(true)}
         onLogout={handleLogout}
@@ -370,6 +373,12 @@ export default function App() {
         onDeleteBus={handleDeleteBus}
         onAddRoute={handleAddRoute}
         onDeleteRoute={handleDeleteRoute}
+      />
+
+      <ApprovalCenter
+        isOpen={showApprovalCenter}
+        onClose={() => setShowApprovalCenter(false)}
+        currentUser={currentUser}
       />
     </div>
   );

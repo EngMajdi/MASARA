@@ -6,10 +6,11 @@ import { incidentRepository } from '../repositories/incidentRepository';
 import { predictionRepository } from '../repositories/predictionRepository';
 import { recommendationRepository } from '../repositories/recommendationRepository';
 import { auditRepository } from '../repositories/auditRepository';
-import { predictDelay } from '../engines/PredictionEngine';
+import { predictDelay, type EffectiveRiskLevel } from '../engines/PredictionEngine';
 import { getLLMProvider } from './llm';
 import { safeParseStructuredRecommendation } from './llm/recommendationSchema';
 import { evaluateRecommendation } from '../services/PolicyEngine';
+import { cancelRecommendation } from '../services/ActionExecutor';
 
 export type AgentRunStatus = 'pending_approval' | 'no_action' | 'policy_rejected';
 
@@ -20,6 +21,15 @@ export interface AgentRunResult {
   status: AgentRunStatus;
   reason?: string;
 }
+
+// How long a pending recommendation stays actionable before it's considered
+// stale (spec §19) — an operational recommendation from 15 minutes ago is no
+// longer trustworthy against live traffic/trip conditions.
+const APPROVAL_WINDOW_MINUTES = 15;
+
+// Incident types severe enough to force CRITICAL risk regardless of ETA math —
+// a safety event outranks a delay probability (spec §7 policy table).
+const SAFETY_INCIDENT_TYPES = new Set(['ACCIDENT', 'BREAKDOWN']);
 
 // Orchestrates one full pass of the MASARA intelligence loop for a single trip:
 // inspect -> detect -> predict -> request route options -> recommend -> explain
@@ -39,6 +49,12 @@ export async function runForTrip(tripId: string): Promise<AgentRunResult> {
   const driver = trip.driverId ? driverRepository.findById(trip.driverId) : undefined;
   const openIncidents = incidentRepository.findOpenByTripId(tripId);
 
+  // A fresh analysis supersedes whatever this trip was previously waiting on —
+  // never let two pending recommendations stack for the same trip.
+  for (const stale of recommendationRepository.findPendingByTripId(tripId)) {
+    cancelRecommendation(stale.id, `Superseded by new agent run ${agentRunId}`);
+  }
+
   // 1. Predict — deterministic, not LLM-derived.
   const prediction = predictDelay({
     currentEtaAt: trip.currentEtaAt,
@@ -56,6 +72,10 @@ export async function runForTrip(tripId: string): Promise<AgentRunResult> {
     createdBy: agentRunId,
   });
 
+  // A safety incident overrides the ETA-derived risk level entirely.
+  const hasSafetyIncident = openIncidents.some((i) => SAFETY_INCIDENT_TYPES.has(i.type));
+  const effectiveRiskLevel: EffectiveRiskLevel = hasSafetyIncident ? 'critical' : prediction.riskLevel;
+
   // 2. Route options — pick the fastest alternative route in the same school, if any.
   const currentRoute = routeRepository.findById(trip.routeId);
   const alternative = currentRoute
@@ -67,8 +87,9 @@ export async function runForTrip(tripId: string): Promise<AgentRunResult> {
         .sort((a, b) => b.improvement - a.improvement)[0]
     : undefined;
 
-  const problem =
-    prediction.delayMinutes > 0
+  const problem = hasSafetyIncident
+    ? `حادثة سلامة مفتوحة على رحلة الحافلة ${bus.busNumber} (${openIncidents.map((i) => i.type).join('، ')}).`
+    : prediction.delayMinutes > 0
       ? `الحافلة ${bus.busNumber} متوقع وصولها متأخرة ${prediction.delayMinutes} دقيقة عن الوقت المستهدف.`
       : openIncidents.length > 0
         ? `توجد ${openIncidents.length} حادثة مفتوحة على رحلة الحافلة ${bus.busNumber}.`
@@ -83,17 +104,21 @@ export async function runForTrip(tripId: string): Promise<AgentRunResult> {
     driverName: driver?.name ?? 'غير محدد',
     delayMinutes: prediction.delayMinutes,
     delayProbability: prediction.delayProbability,
-    riskLevel: prediction.riskLevel,
+    riskLevel: effectiveRiskLevel,
     alternativeRouteId: alternative?.route.id,
     alternativeRouteName: alternative?.route.name,
     alternativeImprovementMins: alternative?.improvement,
     openIncidentDescriptions: openIncidents.map((i) => i.description),
+    hasSafetyIncident,
   });
 
   // 4. Validate structure — malformed AI output never reaches application logic.
   const parsed = safeParseStructuredRecommendation(rawRecommendation);
   if (!parsed.success) {
     auditRepository.create({
+      eventType: 'AI_OUTPUT_REJECTED',
+      entityType: 'trip',
+      entityId: tripId,
       agentRunId,
       inputSummary: `Agent run for trip ${tripId}`,
       detectedProblem: problem,
@@ -104,8 +129,32 @@ export async function runForTrip(tripId: string): Promise<AgentRunResult> {
   }
   const structured = parsed.data;
 
+  const expiresAt = new Date(Date.now() + APPROVAL_WINDOW_MINUTES * 60_000);
+  const baseRecommendationFields = {
+    tripId,
+    busId: bus.id,
+    sourceRouteId: currentRoute?.id ?? null,
+    agentRunId,
+    type: structured.type,
+    title: structured.title,
+    severity: structured.severity,
+    problem: structured.problem,
+    predictionId: predictionRow.id,
+    confidence: structured.confidence,
+    action: structured.recommendation.action,
+    targetId: structured.recommendation.targetId,
+    reason: structured.recommendation.reason,
+    expectedOutcome: structured.recommendation.expectedOutcome,
+    requiresApproval: structured.requiresApproval,
+    expiresAt,
+  };
+
   if (structured.recommendation.action === 'NO_ACTION') {
     auditRepository.create({
+      eventType: 'RECOMMENDATION_CREATED',
+      entityType: 'trip',
+      entityId: tripId,
+      newState: 'no_action',
       agentRunId,
       inputSummary: `Agent run for trip ${tripId}`,
       detectedProblem: structured.problem,
@@ -116,6 +165,16 @@ export async function runForTrip(tripId: string): Promise<AgentRunResult> {
   }
 
   // 5. Policy check — decides whether this is even allowed to reach a human.
+  auditRepository.create({
+    eventType: 'POLICY_EVALUATED',
+    entityType: 'trip',
+    entityId: tripId,
+    agentRunId,
+    inputSummary: `Agent run for trip ${tripId}`,
+    detectedProblem: structured.problem,
+    predictionId: predictionRow.id,
+  });
+
   const policyResult = evaluateRecommendation(
     {
       action: structured.recommendation.action,
@@ -127,21 +186,18 @@ export async function runForTrip(tripId: string): Promise<AgentRunResult> {
 
   if (!policyResult.allowed) {
     const rejectedRow = recommendationRepository.create({
-      tripId,
-      agentRunId,
-      severity: structured.severity,
-      problem: structured.problem,
-      predictionId: predictionRow.id,
-      action: structured.recommendation.action,
-      targetId: structured.recommendation.targetId,
-      reason: structured.recommendation.reason,
-      requiresApproval: structured.requiresApproval,
+      ...baseRecommendationFields,
       status: 'rejected',
       decidedAt: new Date(),
       rejectionReason: `PolicyEngine: ${policyResult.reason}`,
     });
 
     auditRepository.create({
+      eventType: 'REJECTED',
+      entityType: 'ai_recommendation',
+      entityId: rejectedRow.id,
+      previousState: 'pending',
+      newState: 'rejected',
       agentRunId,
       inputSummary: `Agent run for trip ${tripId}`,
       detectedProblem: structured.problem,
@@ -161,19 +217,15 @@ export async function runForTrip(tripId: string): Promise<AgentRunResult> {
 
   // 6. Persist as pending — the agent stops here and waits for a human.
   const recommendationRow = recommendationRepository.create({
-    tripId,
-    agentRunId,
-    severity: structured.severity,
-    problem: structured.problem,
-    predictionId: predictionRow.id,
-    action: structured.recommendation.action,
-    targetId: structured.recommendation.targetId,
-    reason: structured.recommendation.reason,
-    requiresApproval: structured.requiresApproval,
+    ...baseRecommendationFields,
     status: 'pending',
   });
 
   auditRepository.create({
+    eventType: 'RECOMMENDATION_CREATED',
+    entityType: 'ai_recommendation',
+    entityId: recommendationRow.id,
+    newState: 'pending',
     agentRunId,
     inputSummary: `Agent run for trip ${tripId}`,
     detectedProblem: structured.problem,

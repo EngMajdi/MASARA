@@ -4,20 +4,185 @@ import { routeRepository } from '../repositories/routeRepository';
 import { actionRepository } from '../repositories/actionRepository';
 import { actionVerificationRepository } from '../repositories/actionVerificationRepository';
 import { auditRepository } from '../repositories/auditRepository';
-import { evaluateRecommendation } from './PolicyEngine';
+import { evaluateRecommendation, isExpired } from './PolicyEngine';
+import { canTransition, type RecommendationStatus } from '../domain/StateMachine';
 
 // The ONLY component allowed to mutate trip/route state as a consequence of an
-// AI recommendation, and only after a human has approved it (spec §10/§29):
+// AI recommendation, and only after a human has approved it (spec §10/§29).
+// Approve, execute, and verify are three distinct, separately persisted state
+// transitions (Phase 2A §14/§17) — never assume "executed" implies "successful",
+// and never skip straight to a final status without passing through each step:
 //
-//   AI Recommendation -> PolicyEngine -> Human Approval -> ActionExecutor -> DB -> Verification -> Audit
+//   pending -> approved -> executed|execution_failed -> verified|verification_failed
+//                    \-> rejected | expired | cancelled
 
 export class RecommendationStateError extends Error {}
 export class PolicyRejectionError extends Error {}
+export class RecommendationExpiredError extends Error {}
+export class ValidationError extends Error {}
+export class ConflictError extends Error {}
+
+type RecommendationRow = NonNullable<ReturnType<typeof recommendationRepository.findById>>;
+
+function logEvent(
+  rec: RecommendationRow,
+  eventType: string,
+  opts: {
+    actorId?: string | null;
+    actorType?: 'system' | 'agent' | 'user';
+    previousState?: string | null;
+    newState?: string | null;
+    reason?: string | null;
+    metadata?: Record<string, unknown> | null;
+  } = {}
+) {
+  auditRepository.create({
+    eventType,
+    actorId: opts.actorId ?? null,
+    actorType: opts.actorType ?? 'system',
+    entityType: 'ai_recommendation',
+    entityId: rec.id,
+    previousState: opts.previousState ?? null,
+    newState: opts.newState ?? null,
+    metadata: opts.metadata ? JSON.stringify(opts.metadata) : null,
+    agentRunId: rec.agentRunId,
+    inputSummary: `${eventType} — recommendation ${rec.id} (trip ${rec.tripId})`,
+    detectedProblem: rec.problem,
+    predictionId: rec.predictionId,
+    recommendationId: rec.id,
+    operatorDecision: opts.reason ?? null,
+  });
+}
+
+/** Lazily expires a still-pending recommendation that's past its `expiresAt`, recording the transition. */
+function expireIfPastDue(rec: RecommendationRow): boolean {
+  if (rec.status !== 'pending' || !isExpired(rec.expiresAt)) return false;
+  const claimed = recommendationRepository.claimTransition(rec.id, 'pending', 'expired');
+  if (claimed) {
+    logEvent(rec, 'EXPIRED', { previousState: 'pending', newState: 'expired' });
+  }
+  return true;
+}
+
+function executeApprovedAction(rec: RecommendationRow, actorId: string) {
+  logEvent(rec, 'ACTION_STARTED', { actorType: 'system', previousState: 'approved', newState: 'approved' });
+
+  try {
+    const trip = tripRepository.findById(rec.tripId);
+    if (!trip) throw new Error('الرحلة المرتبطة بالتوصية غير موجودة.');
+
+    const etaBefore = trip.currentEtaAt;
+    let etaAfter = etaBefore;
+    const payload: Record<string, unknown> = {};
+
+    if (rec.action === 'CHANGE_ROUTE' && rec.targetId) {
+      const targetRoute = routeRepository.findById(rec.targetId);
+      if (!targetRoute) throw new Error('المسار المستهدف غير موجود.');
+      const currentRoute = routeRepository.findById(trip.routeId);
+
+      // Apply the route-duration delta to the existing ETA rather than
+      // recomputing from wall-clock "now" — keeps verification consistent
+      // with the recommendation's own promised improvement.
+      const durationDeltaMins = currentRoute
+        ? currentRoute.estimatedDurationMins - targetRoute.estimatedDurationMins
+        : 0;
+
+      tripRepository.update(trip.id, { routeId: targetRoute.id });
+      etaAfter = etaBefore
+        ? new Date(etaBefore.getTime() - durationDeltaMins * 60_000)
+        : new Date(Date.now() + targetRoute.estimatedDurationMins * 60_000);
+      tripRepository.update(trip.id, { currentEtaAt: etaAfter });
+
+      payload.routeId = targetRoute.id;
+      payload.routeName = targetRoute.name;
+    } else if (rec.action === 'NOTIFY_SCHOOL') {
+      payload.notified = true;
+    } else if (rec.action === 'FLAG_INCIDENT') {
+      payload.flagged = true;
+    }
+
+    const action = actionRepository.create({
+      recommendationId: rec.id,
+      actionType: rec.action,
+      payload: JSON.stringify(payload),
+      executedAt: new Date(),
+      executedByUserId: actorId,
+    });
+
+    const claimed = recommendationRepository.claimTransition(rec.id, 'approved', 'executed');
+    if (!claimed) throw new Error('تعذر تسجيل حالة التنفيذ للتوصية.');
+
+    logEvent(rec, 'ACTION_COMPLETED', { previousState: 'approved', newState: 'executed', metadata: payload });
+    return { success: true as const, action, etaBefore: etaBefore ?? null, etaAfter: etaAfter ?? null };
+  } catch (err) {
+    recommendationRepository.claimTransition(rec.id, 'approved', 'execution_failed');
+    logEvent(rec, 'ACTION_FAILED', {
+      previousState: 'approved',
+      newState: 'execution_failed',
+      reason: (err as Error).message,
+    });
+    return { success: false as const, error: (err as Error).message };
+  }
+}
+
+function verifyExecutedAction(
+  rec: RecommendationRow,
+  execution: { action: ReturnType<typeof actionRepository.create>; etaBefore: Date | null; etaAfter: Date | null }
+) {
+  logEvent(rec, 'VERIFICATION_STARTED', { previousState: 'executed', newState: 'executed' });
+
+  try {
+    const { action, etaBefore, etaAfter } = execution;
+    const improvementMins =
+      etaBefore && etaAfter ? Math.round((etaBefore.getTime() - etaAfter.getTime()) / 60_000) : null;
+
+    // SUCCESS / PARTIAL_SUCCESS / FAILED (spec §14) — the outcome quality is
+    // separate from whether the verification process itself could run at all.
+    const status =
+      rec.action === 'CHANGE_ROUTE'
+        ? improvementMins !== null && improvementMins > 0
+          ? 'success'
+          : improvementMins === 0
+            ? 'partial_success'
+            : 'failed'
+        : 'success'; // informational actions verify as successful once recorded
+
+    const verification = actionVerificationRepository.create({
+      actionId: action.id,
+      etaBefore,
+      etaAfter,
+      improvementMins,
+      status,
+    });
+
+    const claimed = recommendationRepository.claimTransition(rec.id, 'executed', 'verified');
+    if (!claimed) throw new Error('تعذر تسجيل حالة التحقق للتوصية.');
+
+    logEvent(rec, 'VERIFICATION_COMPLETED', {
+      previousState: 'executed',
+      newState: 'verified',
+      metadata: { status, improvementMins },
+    });
+    return verification;
+  } catch (err) {
+    recommendationRepository.claimTransition(rec.id, 'executed', 'verification_failed');
+    logEvent(rec, 'VERIFICATION_FAILED', {
+      previousState: 'executed',
+      newState: 'verification_failed',
+      reason: (err as Error).message,
+    });
+    return null;
+  }
+}
 
 export function approveRecommendation(recommendationId: string, approvedByUserId: string) {
   const rec = recommendationRepository.findById(recommendationId);
   if (!rec) throw new RecommendationStateError('التوصية غير موجودة.');
-  if (rec.status !== 'pending') {
+
+  if (expireIfPastDue(rec)) {
+    throw new RecommendationExpiredError('انتهت صلاحية هذه التوصية ولم تعد قابلة للتنفيذ.');
+  }
+  if (!canTransition(rec.status as RecommendationStatus, 'approved')) {
     throw new RecommendationStateError(`لا يمكن الموافقة على توصية بحالة "${rec.status}".`);
   }
 
@@ -31,115 +196,112 @@ export function approveRecommendation(recommendationId: string, approvedByUserId
     throw new PolicyRejectionError(policyResult.reason ?? 'رفض محرك السياسات هذا الإجراء.');
   }
 
-  const trip = tripRepository.findById(rec.tripId);
-  if (!trip) throw new RecommendationStateError('الرحلة المرتبطة بالتوصية غير موجودة.');
-
-  const etaBefore = trip.currentEtaAt;
-  let etaAfter = etaBefore;
-  const payload: Record<string, unknown> = {};
-
-  if (rec.action === 'CHANGE_ROUTE' && rec.targetId) {
-    const targetRoute = routeRepository.findById(rec.targetId);
-    if (!targetRoute) throw new RecommendationStateError('المسار المستهدف غير موجود.');
-    const currentRoute = routeRepository.findById(trip.routeId);
-
-    // Apply the route-duration delta to the trip's existing ETA rather than
-    // recomputing from wall-clock "now" — the latter ignores how close the
-    // bus already was and can contradict the recommendation's own promised
-    // improvement (verification must be judged against the same numbers the
-    // recommendation was built on).
-    const durationDeltaMins = currentRoute
-      ? currentRoute.estimatedDurationMins - targetRoute.estimatedDurationMins
-      : 0;
-
-    tripRepository.update(trip.id, { routeId: targetRoute.id });
-    etaAfter = etaBefore
-      ? new Date(etaBefore.getTime() - durationDeltaMins * 60_000)
-      : new Date(Date.now() + targetRoute.estimatedDurationMins * 60_000);
-    tripRepository.update(trip.id, { currentEtaAt: etaAfter });
-
-    payload.routeId = targetRoute.id;
-    payload.routeName = targetRoute.name;
-  } else if (rec.action === 'NOTIFY_SCHOOL') {
-    payload.notified = true;
-  } else if (rec.action === 'FLAG_INCIDENT') {
-    payload.flagged = true;
-  }
-
-  const action = actionRepository.create({
-    recommendationId: rec.id,
-    actionType: rec.action,
-    payload: JSON.stringify(payload),
-    executedAt: new Date(),
-    executedByUserId: approvedByUserId,
-  });
-
-  const improvementMins =
-    etaBefore && etaAfter ? Math.round((etaBefore.getTime() - etaAfter.getTime()) / 60_000) : null;
-
-  const verificationStatus =
-    rec.action === 'CHANGE_ROUTE'
-      ? improvementMins !== null && improvementMins > 0
-        ? 'success'
-        : improvementMins === 0
-          ? 'partial'
-          : 'failed'
-      : 'success'; // informational actions (NOTIFY_SCHOOL / FLAG_INCIDENT) verify as successful once recorded
-
-  const verification = actionVerificationRepository.create({
-    actionId: action.id,
-    etaBefore: etaBefore ?? null,
-    etaAfter: etaAfter ?? null,
-    improvementMins,
-    status: verificationStatus,
-  });
-
-  recommendationRepository.update(rec.id, {
-    status: 'approved',
+  const claimed = recommendationRepository.claimTransition(rec.id, 'pending', 'approved', {
     decidedByUserId: approvedByUserId,
     decidedAt: new Date(),
   });
-
-  auditRepository.create({
-    agentRunId: rec.agentRunId,
-    inputSummary: `Approve recommendation ${rec.id} for trip ${rec.tripId}`,
-    detectedProblem: rec.problem,
-    predictionId: rec.predictionId,
-    recommendationId: rec.id,
-    operatorDecision: 'approved',
-    actionId: action.id,
-    verificationId: verification.id,
+  if (!claimed) {
+    throw new ConflictError('تم اتخاذ قرار على هذه التوصية بالفعل من قبل مستخدم آخر.');
+  }
+  logEvent(rec, 'APPROVED', {
+    actorId: approvedByUserId,
+    actorType: 'user',
+    previousState: 'pending',
+    newState: 'approved',
+    reason: 'approved',
   });
+
+  const approvedRec = recommendationRepository.findById(rec.id)!;
+  const executionResult = executeApprovedAction(approvedRec, approvedByUserId);
+
+  if (!executionResult.success) {
+    return {
+      recommendation: recommendationRepository.findById(rec.id)!,
+      action: null,
+      verification: null,
+    };
+  }
+
+  const verification = verifyExecutedAction(approvedRec, executionResult);
 
   return {
     recommendation: recommendationRepository.findById(rec.id)!,
-    action,
+    action: executionResult.action,
     verification,
   };
 }
 
-export function rejectRecommendation(recommendationId: string, rejectedByUserId: string, reason?: string) {
+export function rejectRecommendation(recommendationId: string, rejectedByUserId: string, reason: string) {
+  if (!reason || !reason.trim()) {
+    throw new ValidationError('سبب الرفض مطلوب ولا يمكن أن يكون فارغاً.');
+  }
+
   const rec = recommendationRepository.findById(recommendationId);
   if (!rec) throw new RecommendationStateError('التوصية غير موجودة.');
-  if (rec.status !== 'pending') {
+
+  if (expireIfPastDue(rec)) {
+    throw new RecommendationExpiredError('انتهت صلاحية هذه التوصية.');
+  }
+  if (!canTransition(rec.status as RecommendationStatus, 'rejected')) {
     throw new RecommendationStateError(`لا يمكن رفض توصية بحالة "${rec.status}".`);
   }
 
-  recommendationRepository.update(rec.id, {
-    status: 'rejected',
+  const claimed = recommendationRepository.claimTransition(rec.id, 'pending', 'rejected', {
     decidedByUserId: rejectedByUserId,
     decidedAt: new Date(),
-    rejectionReason: reason ?? null,
+    rejectionReason: reason.trim(),
   });
+  if (!claimed) {
+    throw new ConflictError('تم اتخاذ قرار على هذه التوصية بالفعل من قبل مستخدم آخر.');
+  }
 
-  auditRepository.create({
-    agentRunId: rec.agentRunId,
-    inputSummary: `Reject recommendation ${rec.id} for trip ${rec.tripId}`,
-    detectedProblem: rec.problem,
-    predictionId: rec.predictionId,
-    recommendationId: rec.id,
-    operatorDecision: 'rejected',
+  logEvent(rec, 'REJECTED', {
+    actorId: rejectedByUserId,
+    actorType: 'user',
+    previousState: 'pending',
+    newState: 'rejected',
+    reason: reason.trim(),
   });
 
   return recommendationRepository.findById(rec.id)!;
+}
+
+export function requestReview(recommendationId: string, requestedByUserId: string, note?: string) {
+  const rec = recommendationRepository.findById(recommendationId);
+  if (!rec) throw new RecommendationStateError('التوصية غير موجودة.');
+
+  if (expireIfPastDue(rec)) {
+    throw new RecommendationExpiredError('انتهت صلاحية هذه التوصية.');
+  }
+  if (rec.status !== 'pending') {
+    throw new RecommendationStateError(`لا يمكن طلب مراجعة على توصية بحالة "${rec.status}".`);
+  }
+
+  // Does not change status — the recommendation stays pending, awaiting a
+  // firmer decision. Purely a logged request for a second opinion.
+  logEvent(rec, 'REVIEW_REQUESTED', {
+    actorId: requestedByUserId,
+    actorType: 'user',
+    previousState: 'pending',
+    newState: 'pending',
+    reason: note ?? null,
+  });
+
+  return recommendationRepository.findById(rec.id)!;
+}
+
+/** System-initiated cancellation — used when a newer agent run supersedes an existing pending recommendation for the same trip. */
+export function cancelRecommendation(recommendationId: string, reason: string) {
+  const rec = recommendationRepository.findById(recommendationId);
+  if (!rec || !canTransition(rec.status as RecommendationStatus, 'cancelled')) return;
+
+  const claimed = recommendationRepository.claimTransition(rec.id, 'pending', 'cancelled');
+  if (claimed) {
+    logEvent(rec, 'RECOMMENDATION_CANCELLED', {
+      actorType: 'system',
+      previousState: 'pending',
+      newState: 'cancelled',
+      reason,
+    });
+  }
 }

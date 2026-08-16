@@ -18,7 +18,8 @@ import {
   LogOut,
   RefreshCw,
   KeyRound,
-  ArrowLeftRight
+  ArrowLeftRight,
+  ShieldAlert
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -28,6 +29,7 @@ interface HeaderProps {
   onOpenNotifications: () => void;
   onOpenAdvisor: () => void;
   onOpenDataManagement: () => void;
+  onOpenApprovalCenter: () => void;
   currentUser: AuthUser | null;
   onOpenAuthModal: () => void;
   onLogout: () => void;
@@ -42,12 +44,16 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenNotifications,
   onOpenAdvisor,
   onOpenDataManagement,
+  onOpenApprovalCenter,
   currentUser,
   onOpenAuthModal,
   onLogout,
   isSyncing = false,
   lastSyncTime
 }) => {
+  // Only operational-approver roles see the Approval Center entry point
+  // (spec Phase 2A §20 — parents/drivers must not approve AI recommendations).
+  const canApprove = currentUser?.role === 'admin' || currentUser?.role === 'school';
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   const roleButtons: { id: UserRole; label: string; icon: React.ReactNode; desc: string }[] = [
@@ -122,6 +128,17 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <KeyRound className="w-3.5 h-3.5" />
               <span>تسجيل الدخول</span>
+            </button>
+          )}
+
+          {canApprove && (
+            <button
+              onClick={onOpenApprovalCenter}
+              className="flex items-center gap-1 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 px-2.5 py-1 rounded-lg transition-all text-xs font-semibold shadow-2xs shrink-0 min-h-[32px]"
+            >
+              <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
+              <span className="hidden xs:inline">مركز الموافقات</span>
+              <span className="xs:hidden">الموافقات</span>
             </button>
           )}
 

@@ -4,6 +4,13 @@
 
 export type RiskLevel = 'low' | 'medium' | 'high';
 
+// PredictionEngine's own ETA math only ever produces low/medium/high — it has
+// no concept of a safety incident. 'critical' is an escalation applied one
+// layer up (MasaraOperationsAgent, from open ACCIDENT/BREAKDOWN incidents),
+// so the wider vocabulary lives here as a distinct type rather than being
+// silently folded into RiskLevel's own domain.
+export type EffectiveRiskLevel = RiskLevel | 'critical';
+
 export interface PredictionInput {
   currentEtaAt: Date;
   targetArrivalAt: Date;

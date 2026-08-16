@@ -13,4 +13,11 @@ export const auditRepository = {
   findAll: () => db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).all(),
   findByAgentRunId: (agentRunId: string) =>
     db.select().from(auditLogs).where(eq(auditLogs.agentRunId, agentRunId)).all(),
+  findByRecommendationId: (recommendationId: string) =>
+    db
+      .select()
+      .from(auditLogs)
+      .where(eq(auditLogs.recommendationId, recommendationId))
+      .orderBy(desc(auditLogs.createdAt))
+      .all(),
 };

@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { evaluateRecommendation } from '../../server/services/PolicyEngine';
+import {
+  evaluateRecommendation,
+  requiresApprovalForRisk,
+  requiresElevatedVisibility,
+  isExpired,
+} from '../../server/services/PolicyEngine';
 import { tripRepository } from '../../server/repositories/tripRepository';
 import { routeRepository } from '../../server/repositories/routeRepository';
 import { busRepository } from '../../server/repositories/busRepository';
@@ -61,5 +66,40 @@ describe('PolicyEngine', () => {
       'nonexistent-trip'
     );
     expect(result.allowed).toBe(false);
+  });
+});
+
+// Spec Phase 2A §7 policy table: LOW may skip approval; MEDIUM/HIGH/CRITICAL always require it.
+describe('PolicyEngine — risk-based approval requirement', () => {
+  it('LOW does not require approval', () => {
+    expect(requiresApprovalForRisk('low')).toBe(false);
+  });
+
+  it('MEDIUM, HIGH, and CRITICAL all require approval', () => {
+    expect(requiresApprovalForRisk('medium')).toBe(true);
+    expect(requiresApprovalForRisk('high')).toBe(true);
+    expect(requiresApprovalForRisk('critical')).toBe(true);
+  });
+
+  it('only CRITICAL gets elevated visibility', () => {
+    expect(requiresElevatedVisibility('critical')).toBe(true);
+    expect(requiresElevatedVisibility('high')).toBe(false);
+    expect(requiresElevatedVisibility('medium')).toBe(false);
+    expect(requiresElevatedVisibility('low')).toBe(false);
+  });
+});
+
+describe('PolicyEngine — expiration (spec §19, AC-09)', () => {
+  it('treats a past expiresAt as expired', () => {
+    expect(isExpired(new Date(Date.now() - 1000))).toBe(true);
+  });
+
+  it('treats a future expiresAt as not expired', () => {
+    expect(isExpired(new Date(Date.now() + 60_000))).toBe(false);
+  });
+
+  it('treats a null/undefined expiresAt as never expiring', () => {
+    expect(isExpired(null)).toBe(false);
+    expect(isExpired(undefined)).toBe(false);
   });
 });

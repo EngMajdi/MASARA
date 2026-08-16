@@ -1,12 +1,32 @@
 import { tripRepository } from '../repositories/tripRepository';
 import { routeRepository } from '../repositories/routeRepository';
 import { busRepository } from '../repositories/busRepository';
+import type { EffectiveRiskLevel } from '../engines/PredictionEngine';
 
 // Gate between "the AI proposed something" and "a human is even allowed to see
 // this as approvable." Nothing here executes anything — it only says yes/no
 // and why. This is what prevents a hidden bypass of human approval (spec §9/§29).
+//
+// Governance rules live here, in the backend domain layer — never in the
+// frontend (Phase 2A §7/§8). The risk->approval table:
+//   LOW      -> informational only, approval optional
+//   MEDIUM   -> operational recommendation, supervisor approval required
+//   HIGH     -> operational change, explicit supervisor approval required
+//   CRITICAL -> safety-related, mandatory approval + elevated visibility
 
 const KNOWN_ACTIONS = ['CHANGE_ROUTE', 'NOTIFY_SCHOOL', 'FLAG_INCIDENT', 'NO_ACTION'] as const;
+
+export function requiresApprovalForRisk(risk: EffectiveRiskLevel): boolean {
+  return risk !== 'low';
+}
+
+export function requiresElevatedVisibility(risk: EffectiveRiskLevel): boolean {
+  return risk === 'critical';
+}
+
+export function isExpired(expiresAt: Date | null | undefined, now: Date = new Date()): boolean {
+  return !!expiresAt && expiresAt.getTime() < now.getTime();
+}
 
 export interface RecommendationForPolicy {
   action: string;

@@ -12,4 +12,5 @@ export const predictionRepository = {
   },
   findLatestByTripId: (tripId: string) =>
     db.select().from(predictions).where(eq(predictions.tripId, tripId)).orderBy(desc(predictions.createdAt)).get(),
+  findById: (id: string) => db.select().from(predictions).where(eq(predictions.id, id)).get(),
 };
