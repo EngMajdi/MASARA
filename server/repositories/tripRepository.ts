@@ -8,6 +8,7 @@ export const tripRepository = {
   findAll: () => db.select().from(trips).all(),
   findById: (id: string) => db.select().from(trips).where(eq(trips.id, id)).get(),
   findByBusId: (busId: string) => db.select().from(trips).where(eq(trips.busId, busId)).all(),
+  findByDriverId: (driverId: string) => db.select().from(trips).where(eq(trips.driverId, driverId)).all(),
   update: (id: string, changes: TripUpdate) =>
     db.update(trips).set({ ...changes, updatedAt: new Date() }).where(eq(trips.id, id)).run(),
 };

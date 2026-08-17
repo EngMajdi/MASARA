@@ -88,7 +88,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       id: 'driver',
       title: 'تطبيق السائق',
       subTitle: 'إدارة المسار اليومي وتفقد الطلاب',
-      demoEmail: 'driver@masara.om',
+      demoEmail: 'driver1@masara.om',
       demoName: 'الكابتن سعيد بن حمد البوسعيدي',
       icon: <Bus className="w-5 h-5 text-amber-600" />,
       accentColor: 'text-amber-700',

@@ -299,6 +299,7 @@ export default function App() {
               onUpdateStatus={handleUpdateStudentStatus}
               onTriggerReroute={handleTriggerReroute}
               onStartRoute={handleStartRoute}
+              currentUser={currentUser}
             />
           )}
 
@@ -307,6 +308,7 @@ export default function App() {
               schools={schools}
               students={students}
               buses={buses}
+              currentUser={currentUser}
             />
           )}
 

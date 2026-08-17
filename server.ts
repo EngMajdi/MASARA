@@ -39,7 +39,12 @@ let workflowSteps = [...INITIAL_WORKFLOW_STEPS];
 // User accounts in-memory database
 let users = [
   { id: 'u-1', name: 'أحمد بن سيف البوسعيدي', email: 'parent@masara.om', password: 'password123', role: 'parent' },
-  { id: 'u-2', name: 'الكابتن سعيد بن حمد البوسعيدي', email: 'driver@masara.om', password: 'password123', role: 'driver' },
+  // Aligned with the governed Drizzle `users` row for driver1 (Journey Core,
+  // Phase 3A) — same person, same name — so the legacy demo login resolves
+  // to a real backend identity for the Driver Journey Console (Phase 3B).
+  // admin@masara.om/school@masara.om already coincided between the two
+  // stores by design; driver did not until this change.
+  { id: 'u-2', name: 'الكابتن سعيد بن حمد البوسعيدي', email: 'driver1@masara.om', password: 'password123', role: 'driver' },
   { id: 'u-3', name: 'إدارة مدرسة المسار الدولية (مسقط)', email: 'school@masara.om', password: 'password123', role: 'school' },
   { id: 'u-4', name: 'المشرف العام - مركز مسارَا الذكي', email: 'admin@masara.om', password: 'password123', role: 'admin' }
 ];

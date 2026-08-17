@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { requireOperationalUser, requireJourneyActor, requireJourneyReader } from '../../server/services/authz';
+import { requireOperationalUser, requireJourneyActor, requireJourneyReader, requireDriverIdentity } from '../../server/services/authz';
 import { userRepository } from '../../server/repositories/userRepository';
 import { driverRepository } from '../../server/repositories/driverRepository';
 import { tripRepository } from '../../server/repositories/tripRepository';
@@ -136,5 +136,89 @@ describe('requireJourneyReader (spec §21/§49)', () => {
     const guard = requireJourneyReader(parentEmail);
     expect(guard.ok).toBe(false);
     if (guard.ok === false) expect(guard.status).toBe(403);
+  });
+});
+
+// Phase 3B §49 mandatory security tests — the read-side gap this phase closes:
+// a driver could previously read ANY trip's roster/journeys by guessing a
+// tripId, since requireJourneyReader only checked role, never trip ownership.
+describe('requireJourneyReader trip-scoping (spec Phase 3B §17/§49 — mandatory security test)', () => {
+  it('allows a driver to read data scoped to their OWN trip', () => {
+    const trip = tripRepository.findAll().find((t) => t.driverId)!;
+    const driver = driverRepository.findById(trip.driverId!)!;
+    const driverUser = userRepository.findById(driver.userId!)!;
+    const guard = requireJourneyReader(driverUser.email, trip.id);
+    expect(guard.ok).toBe(true);
+  });
+
+  it('REJECTS a driver reading a trip assigned to a DIFFERENT driver — 403 (the core mandatory security case)', () => {
+    const trips = tripRepository.findAll().filter((t) => t.driverId);
+    const tripA = trips[0];
+    const tripB = trips.find((t) => t.driverId !== tripA.driverId);
+    expect(tripB).toBeTruthy();
+
+    const driverOfA = driverRepository.findById(tripA.driverId!)!;
+    const userOfA = userRepository.findById(driverOfA.userId!)!;
+
+    const guard = requireJourneyReader(userOfA.email, tripB!.id);
+    expect(guard.ok).toBe(false);
+    if (guard.ok === false) expect(guard.status).toBe(403);
+  });
+
+  it('admin and school stay unscoped — tripId does not restrict them', () => {
+    const admin = userRepository.findAll().find((u) => u.role === 'admin')!;
+    const school = userRepository.findAll().find((u) => u.role === 'school')!;
+    const trip = tripRepository.findAll()[0];
+    expect(requireJourneyReader(admin.email, trip.id).ok).toBe(true);
+    expect(requireJourneyReader(school.email, trip.id).ok).toBe(true);
+  });
+
+  it('a driver with no governed driver record is rejected even with a tripId', () => {
+    const trip = tripRepository.findAll()[0];
+    const guard = requireJourneyReader(parentEmail, trip.id); // parent role already rejected before the trip check runs
+    expect(guard.ok).toBe(false);
+  });
+});
+
+describe('requireDriverIdentity (spec Phase 3B §40 — Driver Journey Console self-lookup, never a client-submitted driverId)', () => {
+  it('resolves a driver to their own governed driver record', () => {
+    const trip = tripRepository.findAll().find((t) => t.driverId)!;
+    const driver = driverRepository.findById(trip.driverId!)!;
+    const driverUser = userRepository.findById(driver.userId!)!;
+    const guard = requireDriverIdentity(driverUser.email);
+    expect(guard.ok).toBe(true);
+    if (guard.ok) expect(guard.driver.id).toBe(driver.id);
+  });
+
+  it('rejects admin — 403 (this endpoint is driver-only, not general operational access)', () => {
+    const admin = userRepository.findAll().find((u) => u.role === 'admin')!;
+    const guard = requireDriverIdentity(admin.email);
+    expect(guard.ok).toBe(false);
+    if (guard.ok === false) expect(guard.status).toBe(403);
+  });
+
+  it('rejects school — 403', () => {
+    const school = userRepository.findAll().find((u) => u.role === 'school')!;
+    const guard = requireDriverIdentity(school.email);
+    expect(guard.ok).toBe(false);
+    if (guard.ok === false) expect(guard.status).toBe(403);
+  });
+
+  it('rejects a parent — 403', () => {
+    const guard = requireDriverIdentity(parentEmail);
+    expect(guard.ok).toBe(false);
+    if (guard.ok === false) expect(guard.status).toBe(403);
+  });
+
+  it('rejects a missing email — 400', () => {
+    const guard = requireDriverIdentity(undefined);
+    expect(guard.ok).toBe(false);
+    if (guard.ok === false) expect(guard.status).toBe(400);
+  });
+
+  it('rejects an unknown email — 404', () => {
+    const guard = requireDriverIdentity('nobody@masara.om');
+    expect(guard.ok).toBe(false);
+    if (guard.ok === false) expect(guard.status).toBe(404);
   });
 });

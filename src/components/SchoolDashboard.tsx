@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { School, Student, Bus } from '../types';
+import { AuthUser } from './AuthModal';
+import { SchoolJourneyOperationsPanel } from './SchoolJourneyOperationsPanel';
 import {
   Building2,
   Users,
@@ -15,12 +17,14 @@ interface SchoolDashboardProps {
   schools: School[];
   students: Student[];
   buses: Bus[];
+  currentUser: AuthUser | null;
 }
 
 export const SchoolDashboard: React.FC<SchoolDashboardProps> = ({
   schools,
   students,
-  buses
+  buses,
+  currentUser
 }) => {
   const selectedSchool = schools[0];
   const schoolStudents = selectedSchool ? students.filter((s) => s.schoolId === selectedSchool.id) : [];
@@ -241,6 +245,15 @@ export const SchoolDashboard: React.FC<SchoolDashboardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Journey Core operations (Phase 3B) — real backend-derived Journey state, not legacy status */}
+      {currentUser?.email ? (
+        <SchoolJourneyOperationsPanel userEmail={currentUser.email} />
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center text-slate-500 text-xs font-medium">
+          سجّل الدخول لعرض عمليات الرحلات الطلابية المباشرة.
+        </div>
+      )}
     </div>
   );
 };

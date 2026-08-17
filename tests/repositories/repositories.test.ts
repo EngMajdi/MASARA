@@ -47,4 +47,14 @@ describe('Repository layer (create/read/update)', () => {
     const stored = tripRepository.findById(trip.id)?.currentEtaAt?.getTime() ?? 0;
     expect(Math.abs(stored - newEta.getTime())).toBeLessThan(1000);
   });
+
+  // Phase 3B §40 — the Driver Journey Console resolves a driver's own trips
+  // via this lookup (never a client-submitted driverId).
+  it('finds trips scoped to a single driver', () => {
+    const trip = tripRepository.findAll().find((t) => t.driverId)!;
+    const scoped = tripRepository.findByDriverId(trip.driverId!);
+    expect(scoped.length).toBeGreaterThan(0);
+    expect(scoped.every((t) => t.driverId === trip.driverId)).toBe(true);
+    expect(scoped.some((t) => t.id === trip.id)).toBe(true);
+  });
 });

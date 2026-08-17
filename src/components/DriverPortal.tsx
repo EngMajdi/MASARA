@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Bus, Student, Route } from '../types';
 import { SwipeableCard } from './SwipeableCard';
+import { AuthUser } from './AuthModal';
+import { DriverJourneyConsole } from './DriverJourneyConsole';
 import {
   Navigation,
   CheckCircle2,
@@ -23,6 +25,7 @@ interface DriverPortalProps {
   onUpdateStatus: (studentId: string, status: 'boarded' | 'absent') => void;
   onTriggerReroute: (busId: string, incident: string) => void;
   onStartRoute?: (busId: string) => void;
+  currentUser: AuthUser | null;
 }
 
 export const DriverPortal: React.FC<DriverPortalProps> = ({
@@ -31,7 +34,8 @@ export const DriverPortal: React.FC<DriverPortalProps> = ({
   routes,
   onUpdateStatus,
   onTriggerReroute,
-  onStartRoute
+  onStartRoute,
+  currentUser
 }) => {
   const activeBus = buses[0]; // Bus 101
   const activeRoute = activeBus ? routes.find((r) => r.busId === activeBus.id) || routes[0] : routes[0];
@@ -159,6 +163,21 @@ export const DriverPortal: React.FC<DriverPortalProps> = ({
             <span>الإبلاغ عن طارئ</span>
           </button>
         </div>
+      </div>
+
+      {/* Journey Core console (Phase 3B) — real backend-governed per-student state, not legacy status toggles */}
+      <div>
+        <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2 mb-3">
+          <Navigation className="w-4 h-4 text-blue-600" />
+          <span>وحدة تحكم رحلات الطلاب (Journey Console)</span>
+        </h3>
+        {currentUser?.email ? (
+          <DriverJourneyConsole userEmail={currentUser.email} />
+        ) : (
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center text-slate-500 text-xs font-medium">
+            سجّل الدخول لعرض وحدة تحكم رحلات الطلاب.
+          </div>
+        )}
       </div>
 
       {/* Main Grid: Active Next Stop Navigation & Student Check-In Matrix */}

@@ -281,3 +281,74 @@ export interface ActionVerification {
   status: 'success' | 'partial_success' | 'failed';
   checkedAt: string;
 }
+
+// --- Phase 3A/3B: Journey Core + Operations Experience ---
+// Mirrors database/schema.ts `journeys` — dates arrive as ISO strings over JSON.
+
+export type JourneyState =
+  | 'scheduled'
+  | 'waiting'
+  | 'boarding'
+  | 'on_bus'
+  | 'in_transit'
+  | 'approaching_stop'
+  | 'dropped_off'
+  | 'completed'
+  | 'cancelled'
+  | 'missed'
+  | 'incident';
+
+export interface Journey {
+  id: string;
+  studentId: string;
+  tripId: string;
+  state: JourneyState;
+  currentStopId: string | null;
+  scheduledPickupTime: string | null;
+  scheduledDropoffTime: string | null;
+  boardedAt: string | null;
+  droppedOffAt: string | null;
+  missedReason: string | null;
+  cancelReason: string | null;
+  incidentReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type JourneyStateCounts = Record<JourneyState, number>;
+
+export interface TripJourneySummary {
+  tripId: string;
+  totalStudents: number;
+  counts: JourneyStateCounts;
+}
+
+/** A Journey enriched server-side with the governed student's name/grade for display (spec §36 — never fabricated, always backend-derived). */
+export interface JourneyWithStudent extends Journey {
+  studentName: string | null;
+  studentGrade: string | null;
+}
+
+export interface TripWithJourneys {
+  trip: GovernedTrip;
+  busNumber: string | null;
+  routeName: string | null;
+  journeys: JourneyWithStudent[];
+}
+
+export interface TripWithJourneySummary {
+  trip: GovernedTrip;
+  busNumber: string | null;
+  routeName: string | null;
+  driverName: string | null;
+  summary: TripJourneySummary;
+}
+
+export interface GovernedRouteStop {
+  id: string;
+  routeId: string;
+  name: string;
+  lat: number;
+  lng: number;
+  orderSequence: number;
+}

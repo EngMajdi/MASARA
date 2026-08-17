@@ -141,3 +141,65 @@ const COLORS: Record<string, string> = {
 export function colorFor(eventType: string): string {
   return COLORS[eventType] ?? 'text-blue-700 bg-blue-50 border-blue-200';
 }
+
+// --- Journey *state* display (Phase 3B) — distinct from the event-type maps
+// above: a Journey's current `state` (e.g. "on_bus") is not the same string
+// as the audit event that produced it (e.g. "STUDENT_BOARDED"). Status is
+// never color-only here either — icon + label + color always travel
+// together (spec §27/§64).
+
+import type { JourneyState } from '../types';
+
+export const JOURNEY_STATE_LABELS: Record<JourneyState, string> = {
+  scheduled: 'مجدولة',
+  waiting: 'بانتظار الصعود',
+  boarding: 'جارٍ الصعود الآن',
+  on_bus: 'على متن الحافلة',
+  in_transit: 'في الطريق',
+  approaching_stop: 'يقترب من نقطة التوقف',
+  dropped_off: 'تم النزول',
+  completed: 'اكتملت الرحلة',
+  cancelled: 'ملغاة',
+  missed: 'تغيّب الطالب',
+  incident: 'حادثة قيد المراجعة',
+};
+
+const JOURNEY_STATE_ICONS: Record<JourneyState, React.ReactNode> = {
+  scheduled: <Clock className="w-3.5 h-3.5" />,
+  waiting: <Clock className="w-3.5 h-3.5" />,
+  boarding: <DoorOpen className="w-3.5 h-3.5" />,
+  on_bus: <UserCheck className="w-3.5 h-3.5" />,
+  in_transit: <Navigation className="w-3.5 h-3.5" />,
+  approaching_stop: <MapPin className="w-3.5 h-3.5" />,
+  dropped_off: <DoorOpen className="w-3.5 h-3.5" />,
+  completed: <Flag className="w-3.5 h-3.5" />,
+  cancelled: <Ban className="w-3.5 h-3.5" />,
+  missed: <UserX className="w-3.5 h-3.5" />,
+  incident: <Siren className="w-3.5 h-3.5" />,
+};
+
+const JOURNEY_STATE_COLORS: Record<JourneyState, string> = {
+  scheduled: 'text-slate-600 bg-slate-100 border-slate-300',
+  waiting: 'text-amber-700 bg-amber-50 border-amber-200',
+  boarding: 'text-amber-700 bg-amber-50 border-amber-200',
+  on_bus: 'text-blue-700 bg-blue-50 border-blue-200',
+  in_transit: 'text-blue-700 bg-blue-50 border-blue-200',
+  approaching_stop: 'text-indigo-700 bg-indigo-50 border-indigo-200',
+  dropped_off: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+  completed: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+  cancelled: 'text-slate-500 bg-slate-100 border-slate-300',
+  missed: 'text-rose-700 bg-rose-50 border-rose-200',
+  incident: 'text-rose-700 bg-rose-100 border-rose-300',
+};
+
+export function journeyStateLabel(state: JourneyState): string {
+  return JOURNEY_STATE_LABELS[state] ?? state;
+}
+
+export function journeyStateIcon(state: JourneyState): React.ReactNode {
+  return JOURNEY_STATE_ICONS[state] ?? <ShieldAlert className="w-3.5 h-3.5" />;
+}
+
+export function journeyStateColor(state: JourneyState): string {
+  return JOURNEY_STATE_COLORS[state] ?? 'text-slate-600 bg-slate-100 border-slate-300';
+}

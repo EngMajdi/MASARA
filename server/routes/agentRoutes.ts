@@ -144,6 +144,13 @@ agentRouter.get('/api/routes/:id', (req, res) => {
   res.json(route);
 });
 
+// Stop metadata only (name/order/coordinates) — not GPS tracking, just the
+// static route definition. Needed by the Driver Journey Console (Phase 3B
+// §24/§40) to record which stop a student approached/was dropped off at.
+agentRouter.get('/api/routes/:id/stops', (req, res) => {
+  res.json(routeRepository.findStopsByRouteId(req.params.id));
+});
+
 agentRouter.get('/api/predictions/:id', (req, res) => {
   const prediction = predictionRepository.findById(req.params.id);
   if (!prediction) return res.status(404).json({ error: 'التنبؤ غير موجود.' });
