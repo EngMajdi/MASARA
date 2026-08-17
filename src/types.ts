@@ -238,7 +238,7 @@ export interface SimulationSession {
   errorMessage: string | null;
 }
 
-export type FeedCategory = 'all' | 'ai' | 'trips' | 'approvals' | 'actions' | 'verification' | 'safety';
+export type FeedCategory = 'all' | 'ai' | 'trips' | 'students' | 'approvals' | 'actions' | 'verification' | 'safety';
 
 export interface OperationsFeedEvent {
   id: string;
@@ -250,6 +250,7 @@ export interface OperationsFeedEvent {
   entityType: string;
   entityId: string | null;
   tripId: string | null;
+  studentId: string | null;
   recommendationId: string | null;
   previousState: string | null;
   newState: string | null;

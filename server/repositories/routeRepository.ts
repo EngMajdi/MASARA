@@ -7,4 +7,5 @@ export const routeRepository = {
   findById: (id: string) => db.select().from(routes).where(eq(routes.id, id)).get(),
   findBySchoolId: (schoolId: string) => db.select().from(routes).where(eq(routes.schoolId, schoolId)).all(),
   findStopsByRouteId: (routeId: string) => db.select().from(routeStops).where(eq(routeStops.routeId, routeId)).all(),
+  findStopById: (id: string) => db.select().from(routeStops).where(eq(routeStops.id, id)).get(),
 };

@@ -5,4 +5,5 @@ import { drivers } from '../../database/schema';
 export const driverRepository = {
   findAll: () => db.select().from(drivers).all(),
   findById: (id: string) => db.select().from(drivers).where(eq(drivers.id, id)).get(),
+  findByUserId: (userId: string) => db.select().from(drivers).where(eq(drivers.userId, userId)).get(),
 };

@@ -12,6 +12,7 @@ import {
 import { agentRouter } from './server/routes/agentRoutes';
 import { simulationRouter } from './server/routes/simulationRoutes';
 import { operationsRouter } from './server/routes/operationsRoutes';
+import { journeyRouter } from './server/routes/journeyRoutes';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -24,6 +25,8 @@ app.use(agentRouter);
 // Phase 2B: Simulation Engine + AI Operations Feed — likewise additive.
 app.use(simulationRouter);
 app.use(operationsRouter);
+// Phase 3A: Journey Core — likewise additive.
+app.use(journeyRouter);
 
 // In-memory application state
 let schools = [...INITIAL_SCHOOLS];

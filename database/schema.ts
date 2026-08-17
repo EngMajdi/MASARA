@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 // All IDs are UUID strings (text) and all tables carry created_at/updated_at,
 // matching a shape that transfers directly to Postgres (uuid + timestamptz)
@@ -130,6 +130,49 @@ export const boardingEvents = sqliteTable('boarding_events', {
   timestamp: integer('timestamp', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
   createdAt: createdAt(),
 });
+
+// Phase 3A — Journey Core. A Trip is the shared vehicle run; a Journey is one
+// student's individual participation/state within that Trip (spec §7). Kept
+// deliberately lean: bus/route/driver are NOT denormalized here — they're
+// always derived through trips.routeId/busId/driverId, since tripId already
+// determines them (spec §8/AC-03). This is a genuinely new entity: nothing
+// in the Phase 1-2B schema tracks *current per-student state* — boarding_events
+// is an append-only log of discrete events, not a stateful entity, and
+// JourneyService continues writing to it too for backward compatibility with
+// SafetyCheck.ts (see server/services/JourneyService.ts for the full note).
+//
+// state (see server/domain/JourneyStateMachine.ts for the transition graph):
+//   'scheduled' | 'waiting' | 'boarding' | 'on_bus' | 'in_transit'
+//   | 'approaching_stop' | 'dropped_off' | 'completed'
+//   | 'cancelled' | 'missed' | 'incident'
+export const journeys = sqliteTable(
+  'journeys',
+  {
+    id: id(),
+    studentId: text('student_id').notNull().references(() => students.id),
+    tripId: text('trip_id').notNull().references(() => trips.id),
+    state: text('state').notNull().default('scheduled'),
+    currentStopId: text('current_stop_id').references(() => routeStops.id),
+    scheduledPickupTime: integer('scheduled_pickup_time', { mode: 'timestamp' }),
+    scheduledDropoffTime: integer('scheduled_dropoff_time', { mode: 'timestamp' }),
+    boardedAt: integer('boarded_at', { mode: 'timestamp' }),
+    droppedOffAt: integer('dropped_off_at', { mode: 'timestamp' }),
+    missedReason: text('missed_reason'),
+    cancelReason: text('cancel_reason'),
+    incidentReason: text('incident_reason'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => ({
+    // At most one journey per student per trip (spec §31) — the idempotency
+    // guarantee is a real database constraint, not just application logic.
+    studentTripUnique: uniqueIndex('journeys_student_trip_unique').on(table.studentId, table.tripId),
+    studentIdx: index('journeys_student_idx').on(table.studentId),
+    tripIdx: index('journeys_trip_idx').on(table.tripId),
+    stateIdx: index('journeys_state_idx').on(table.state),
+    tripStateIdx: index('journeys_trip_state_idx').on(table.tripId, table.state),
+  })
+);
 
 // type: 'TRAFFIC' | 'BREAKDOWN' | 'ACCIDENT' | 'STUDENT_DELAY' | 'ROUTE_BLOCKED' | 'VEHICLE_ISSUE' | 'OTHER'
 // severity: 'low' | 'medium' | 'high'
@@ -262,11 +305,15 @@ export const auditLogs = sqliteTable(
     // recommendationId -> ai_recommendations.tripId for every row (spec §54,
     // "avoid N+1 API requests").
     tripId: text('trip_id').references(() => trips.id),
+    // Phase 3A: same rationale, one level deeper — Journey events need to be
+    // queryable by student without joining through journeys.studentId.
+    studentId: text('student_id').references(() => students.id),
     createdAt: createdAt(),
   },
   (table) => ({
     recommendationIdx: index('audit_logs_recommendation_idx').on(table.recommendationId),
     entityIdx: index('audit_logs_entity_idx').on(table.entityType, table.entityId),
     tripIdx: index('audit_logs_trip_idx').on(table.tripId, table.createdAt),
+    studentIdx: index('audit_logs_student_idx').on(table.studentId, table.createdAt),
   })
 );

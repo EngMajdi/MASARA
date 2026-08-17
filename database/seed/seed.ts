@@ -18,6 +18,7 @@ import {
   actions,
   actionVerifications,
   auditLogs,
+  journeys,
 } from '../schema';
 
 // Deterministic synthetic data only — no real children's information (spec §7/§17).
@@ -37,6 +38,7 @@ function clearAll() {
   db.delete(predictions).run();
   db.delete(incidents).run();
   db.delete(boardingEvents).run();
+  db.delete(journeys).run();
   db.delete(trips).run();
   db.delete(routeStops).run();
   db.delete(routes).run();

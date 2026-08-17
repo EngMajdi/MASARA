@@ -16,6 +16,7 @@ const TABS: { id: FeedCategory; label: string }[] = [
   { id: 'all', label: 'الكل' },
   { id: 'ai', label: 'الذكاء الاصطناعي' },
   { id: 'trips', label: 'الرحلات' },
+  { id: 'students', label: 'الطلاب' },
   { id: 'approvals', label: 'الموافقات' },
   { id: 'actions', label: 'الإجراءات' },
   { id: 'verification', label: 'التحقق' },

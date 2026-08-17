@@ -6,7 +6,10 @@ type NewAuditLog = typeof auditLogs.$inferInsert;
 
 export interface AuditLogFilter {
   tripId?: string;
+  studentId?: string;
   recommendationId?: string;
+  entityType?: string;
+  entityId?: string;
   eventTypes?: string[];
   since?: Date;
   limit?: number;
@@ -30,12 +33,25 @@ export const auditRepository = {
       .all(),
   findByTripId: (tripId: string) =>
     db.select().from(auditLogs).where(eq(auditLogs.tripId, tripId)).orderBy(desc(auditLogs.createdAt)).all(),
+  findByStudentId: (studentId: string) =>
+    db.select().from(auditLogs).where(eq(auditLogs.studentId, studentId)).orderBy(desc(auditLogs.createdAt)).all(),
+  /** Journey timeline (spec §38) — one entity's full event history, oldest first. */
+  findByEntity: (entityType: string, entityId: string) =>
+    db
+      .select()
+      .from(auditLogs)
+      .where(and(eq(auditLogs.entityType, entityType), eq(auditLogs.entityId, entityId)))
+      .orderBy(auditLogs.createdAt)
+      .all(),
 
   /** Backs the Operations Feed — a single indexed query, no N+1 joins. */
   findFiltered: (filter: AuditLogFilter) => {
     const conditions = [];
     if (filter.tripId) conditions.push(eq(auditLogs.tripId, filter.tripId));
+    if (filter.studentId) conditions.push(eq(auditLogs.studentId, filter.studentId));
     if (filter.recommendationId) conditions.push(eq(auditLogs.recommendationId, filter.recommendationId));
+    if (filter.entityType) conditions.push(eq(auditLogs.entityType, filter.entityType));
+    if (filter.entityId) conditions.push(eq(auditLogs.entityId, filter.entityId));
     if (filter.eventTypes && filter.eventTypes.length > 0) conditions.push(inArray(auditLogs.eventType, filter.eventTypes));
     if (filter.since) conditions.push(gt(auditLogs.createdAt, filter.since));
 

@@ -22,6 +22,13 @@
       "when": 1786906587026,
       "tag": "0002_stale_captain_america",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1786946545207,
+      "tag": "0003_rich_misty_knight",
+      "breakpoints": true
     }
   ]
 }

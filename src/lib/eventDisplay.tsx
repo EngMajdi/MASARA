@@ -16,6 +16,11 @@ import {
   Siren,
   Flag,
   MessageSquareWarning,
+  UserCheck,
+  UserX,
+  MapPin,
+  DoorOpen,
+  UserPlus,
 } from 'lucide-react';
 
 // Shared across SimulationCenter and AIOperationsFeed so the event vocabulary
@@ -47,6 +52,18 @@ export const EVENT_LABELS: Record<string, string> = {
   VERIFICATION_STARTED: 'بدأ التحقق من النتيجة',
   VERIFICATION_COMPLETED: 'اكتمل التحقق بنجاح',
   VERIFICATION_FAILED: 'فشل التحقق',
+  // Journey Core (Phase 3A)
+  JOURNEY_CREATED: 'تم إنشاء رحلة طالب',
+  JOURNEY_STARTED: 'بدأت رحلة الطالب',
+  BOARDING_STARTED: 'بدأ الصعود',
+  STUDENT_BOARDED: 'صعد الطالب إلى الحافلة',
+  TRANSIT_STARTED: 'بدأت الحافلة التنقل',
+  STOP_APPROACHING: 'الحافلة تقترب من نقطة التوقف',
+  STUDENT_DROPPED_OFF: 'نزل الطالب من الحافلة',
+  JOURNEY_COMPLETED: 'اكتملت رحلة الطالب',
+  STUDENT_MISSED: 'تغيّب الطالب عن الرحلة',
+  JOURNEY_CANCELLED: 'أُلغيت رحلة الطالب',
+  JOURNEY_INCIDENT: 'حادثة أثناء رحلة الطالب',
 };
 
 export function labelFor(eventType: string): string {
@@ -78,6 +95,18 @@ const ICONS: Record<string, React.ReactNode> = {
   VERIFICATION_STARTED: <ShieldCheck className="w-4 h-4" />,
   VERIFICATION_COMPLETED: <CheckCheck className="w-4 h-4" />,
   VERIFICATION_FAILED: <XCircle className="w-4 h-4" />,
+  // Journey Core (Phase 3A)
+  JOURNEY_CREATED: <UserPlus className="w-4 h-4" />,
+  JOURNEY_STARTED: <PlayCircle className="w-4 h-4" />,
+  BOARDING_STARTED: <DoorOpen className="w-4 h-4" />,
+  STUDENT_BOARDED: <UserCheck className="w-4 h-4" />,
+  TRANSIT_STARTED: <Navigation className="w-4 h-4" />,
+  STOP_APPROACHING: <MapPin className="w-4 h-4" />,
+  STUDENT_DROPPED_OFF: <DoorOpen className="w-4 h-4" />,
+  JOURNEY_COMPLETED: <Flag className="w-4 h-4" />,
+  STUDENT_MISSED: <UserX className="w-4 h-4" />,
+  JOURNEY_CANCELLED: <Ban className="w-4 h-4" />,
+  JOURNEY_INCIDENT: <Siren className="w-4 h-4" />,
 };
 
 export function iconFor(eventType: string): React.ReactNode {
@@ -100,6 +129,13 @@ const COLORS: Record<string, string> = {
   VERIFICATION_COMPLETED: 'text-emerald-700 bg-emerald-50 border-emerald-200',
   SIMULATION_COMPLETED: 'text-emerald-700 bg-emerald-50 border-emerald-200',
   TRIP_COMPLETED: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+  // Journey Core (Phase 3A)
+  JOURNEY_INCIDENT: 'text-rose-700 bg-rose-100 border-rose-300',
+  STUDENT_MISSED: 'text-amber-700 bg-amber-50 border-amber-200',
+  JOURNEY_CANCELLED: 'text-slate-500 bg-slate-100 border-slate-300',
+  STUDENT_BOARDED: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+  STUDENT_DROPPED_OFF: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+  JOURNEY_COMPLETED: 'text-emerald-700 bg-emerald-50 border-emerald-200',
 };
 
 export function colorFor(eventType: string): string {
