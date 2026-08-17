@@ -1,6 +1,7 @@
 import { telemetryObservationRepository } from '../repositories/telemetryObservationRepository';
 import { telemetryDeviceRepository } from '../repositories/telemetryDeviceRepository';
 import { tripRepository } from '../repositories/tripRepository';
+import { processObservation } from './CurrentLocationProjectionService';
 import type { TelemetryObservation } from '../domain/telemetryContract';
 
 // THE telemetry ingestion boundary (spec Phase 4B §1/§124). This is the one
@@ -222,7 +223,13 @@ export function ingestObservation(device: AuthenticatedDevice, payload: Telemetr
       sequence: validated.sequence ?? null,
     });
     telemetryDeviceRepository.update(device.id, { lastSeenAt: new Date() });
-    return { kind: 'created', observation: toTelemetryObservation(created) };
+    const observation = toTelemetryObservation(created);
+    // Phase 4C — downstream, best-effort projection hook (spec §7/§20). The
+    // authoritative write to telemetry_observations above is already
+    // complete; this can never fail the ingestion itself (see
+    // CurrentLocationProjectionService.processObservation's own doc comment).
+    processObservation(observation);
+    return { kind: 'created', observation };
   } catch (err) {
     if (!isUniqueConstraintError(err)) throw err;
 
@@ -234,7 +241,9 @@ export function ingestObservation(device: AuthenticatedDevice, payload: Telemetr
     if (!existing) throw err; // should be unreachable — the constraint that just fired guarantees a row exists
 
     if (isSamePayload(existing, validated, correlation)) {
-      return { kind: 'duplicate', observation: toTelemetryObservation(existing) };
+      const observation = toTelemetryObservation(existing);
+      processObservation(observation); // idempotent — re-processing the same observation is always a safe no-op (spec §6/§33)
+      return { kind: 'duplicate', observation };
     }
     throw new TelemetryConflictError('يوجد رصد GPS آخر بنفس sourceEventId ببيانات مختلفة — تم رفض الطلب دون تعديل السجل الأصلي.');
   }

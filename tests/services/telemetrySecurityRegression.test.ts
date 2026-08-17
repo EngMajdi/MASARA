@@ -50,11 +50,61 @@ describe('Telemetry routes use the correct dedicated guards (spec §12/§82)', (
   it('the ingestion (POST) route authenticates via requireTelemetryDevice, not a human-user guard', () => {
     expect(telemetryRoutesSource).toMatch(/requireTelemetryDevice\(/);
     // Must not be gated by requireOperationalUser — a device is not a human user (spec §12).
-    const postBlock = telemetryRoutesSource.slice(telemetryRoutesSource.indexOf('telemetryRouter.post'));
+    // Bounded to just this one handler (up to its closing "});"), not the rest of the file —
+    // later Phase 4C routes legitimately use requireOperationalUser for the fleet endpoint.
+    const start = telemetryRoutesSource.indexOf("telemetryRouter.post('/api/telemetry/observations'");
+    const postBlock = telemetryRoutesSource.slice(start, telemetryRoutesSource.indexOf('});', start));
     expect(postBlock).not.toMatch(/requireOperationalUser\(/);
   });
 
   it('the read (GET) route authenticates via requireTelemetryReader', () => {
     expect(telemetryRoutesSource).toMatch(/requireTelemetryReader\(/);
+  });
+});
+
+// Phase 4C — Current Location Projection guards.
+const currentLocationServiceSource = fs.readFileSync(
+  path.resolve(__dirname, '../../server/services/CurrentLocationProjectionService.ts'),
+  'utf8'
+);
+const currentLocationRepoSource = fs.readFileSync(
+  path.resolve(__dirname, '../../server/repositories/currentLocationProjectionRepository.ts'),
+  'utf8'
+);
+
+describe('The projection is server-derived only — no write endpoint exists (spec §28, mandatory)', () => {
+  it('no POST/PUT/PATCH/DELETE route targets /api/telemetry/current', () => {
+    expect(telemetryRoutesSource).not.toMatch(/\.(post|put|patch|delete)\(\s*['"]\/api\/telemetry\/current/);
+  });
+
+  it('the fleet endpoint is gated by requireOperationalUser and the single-bus endpoint by requireTelemetryReader', () => {
+    const fleetBlock = telemetryRoutesSource.slice(telemetryRoutesSource.indexOf("'/api/telemetry/current/fleet'"));
+    expect(fleetBlock.slice(0, fleetBlock.indexOf('});'))).toMatch(/requireOperationalUser\(/);
+
+    const singleBlock = telemetryRoutesSource.slice(telemetryRoutesSource.indexOf("'/api/telemetry/current/:busId'"));
+    expect(singleBlock.slice(0, singleBlock.indexOf('});'))).toMatch(/requireTelemetryReader\(/);
+  });
+
+  it('the fleet route is registered before the :busId route (so "fleet" is never parsed as a busId)', () => {
+    expect(telemetryRoutesSource.indexOf("'/api/telemetry/current/fleet'")).toBeLessThan(
+      telemetryRoutesSource.indexOf("'/api/telemetry/current/:busId'")
+    );
+  });
+});
+
+describe('Projection logic never imports Journey/AI/governance code (spec §27/§49, architectural guardrail)', () => {
+  const forbidden = /from ['"].*\/(JourneyService|JourneyStateMachine|ActionExecutor|PolicyEngine|MasaraOperationsAgent|PredictionEngine)['"]/;
+
+  it('CurrentLocationProjectionService.ts imports none of them', () => {
+    expect(currentLocationServiceSource).not.toMatch(forbidden);
+  });
+
+  it('currentLocationProjectionRepository.ts imports none of them', () => {
+    expect(currentLocationRepoSource).not.toMatch(forbidden);
+  });
+
+  it('the projection service never imports auditRepository — it must never write audit rows (spec §25)', () => {
+    expect(currentLocationServiceSource).not.toMatch(/from ['"].*auditRepository['"]/);
+    expect(currentLocationRepoSource).not.toMatch(/from ['"].*auditRepository['"]/);
   });
 });

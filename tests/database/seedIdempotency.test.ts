@@ -7,6 +7,7 @@ import { createJourney, boardStudent, startJourney, startBoarding } from '../../
 import { registerDevice } from '../../server/services/TelemetryDeviceService';
 import { ingestObservation } from '../../server/services/TelemetryIngestionService';
 import { busRepository } from '../../server/repositories/busRepository';
+import { getCurrentLocation } from '../../server/services/CurrentLocationProjectionService';
 
 describe('Seed script teardown order', () => {
   it('can reseed after governance tables have rows (predictions/recommendations/audit_logs) without FK errors', async () => {
@@ -33,6 +34,17 @@ describe('Seed script teardown order', () => {
       { id: device.id, busId: device.busId, providerType: 'DEVICE' },
       { sourceEventId: `evt-${crypto.randomUUID()}`, occurredAt: new Date().toISOString(), latitude: 23.6, longitude: 58.4 }
     ); // telemetry_devices row + telemetry_observations row
+    expect(() => seed()).not.toThrow();
+  });
+
+  it('can reseed after current_location_projection has rows too (spec Phase 4C §23/§50 — same recurring FK-order bug class, guarded again)', () => {
+    const bus = busRepository.findAll()[0];
+    const { device } = registerDevice(bus.id, 'TEST DEVICE — seed idempotency 4C', 'DEVICE');
+    ingestObservation(
+      { id: device.id, busId: device.busId, providerType: 'DEVICE' },
+      { sourceEventId: `evt-${crypto.randomUUID()}`, occurredAt: new Date().toISOString(), latitude: 23.6, longitude: 58.4 }
+    );
+    expect(getCurrentLocation(bus.id)).toBeTruthy(); // current_location_projection row exists
     expect(() => seed()).not.toThrow();
   });
 });

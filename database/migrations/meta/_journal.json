@@ -36,6 +36,13 @@
       "when": 1786984144704,
       "tag": "0004_rich_madrox",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1786992813121,
+      "tag": "0005_curious_preak",
+      "breakpoints": true
     }
   ]
 }

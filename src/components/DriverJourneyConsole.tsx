@@ -16,6 +16,7 @@ import {
 } from '../services/journeysApi';
 import { JourneyStatusBadge } from './JourneyStatusBadge';
 import { JourneyDetailModal } from './JourneyDetailModal';
+import { CurrentLocationPanel } from './CurrentLocationPanel';
 import {
   Bus,
   RefreshCw,
@@ -290,6 +291,15 @@ export const DriverJourneyConsole: React.FC<DriverJourneyConsoleProps> = ({ user
                 </select>
               </div>
             )}
+          </div>
+
+          {/* Current Location Projection (Phase 4C) — reads the server-derived projection only, never computed client-side */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-4">
+            <h3 className="text-xs font-bold text-slate-600 mb-2.5 flex items-center gap-1.5">
+              <MapPin className="w-3.5 h-3.5 text-blue-600" />
+              <span>الموقع الحالي للحافلة</span>
+            </h3>
+            <CurrentLocationPanel userEmail={userEmail} scope={{ type: 'bus', busId: selectedTrip.trip.busId, label: selectedTrip.busNumber ?? undefined }} />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

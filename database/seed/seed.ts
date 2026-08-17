@@ -21,6 +21,7 @@ import {
   journeys,
   telemetryObservations,
   telemetryDevices,
+  currentLocationProjection,
 } from '../schema';
 
 // Deterministic synthetic data only — no real children's information (spec §7/§17).
@@ -38,6 +39,9 @@ function clearAll() {
   // buses — must go before buses (this exact bug class — a new table
   // forgotten by clearAll — has recurred every phase that added one; see
   // tests/database/seedIdempotency.test.ts, extended again for this table).
+  // Phase 4C: current_location_projection references buses and trips —
+  // must go before both too (same recurring bug class, guarded again).
+  db.delete(currentLocationProjection).run();
   db.delete(telemetryObservations).run();
   db.delete(telemetryDevices).run();
   db.delete(auditLogs).run();

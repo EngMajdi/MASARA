@@ -2,6 +2,7 @@ import { tripRepository } from '../repositories/tripRepository';
 import { busRepository } from '../repositories/busRepository';
 import { routeRepository } from '../repositories/routeRepository';
 import { schoolRepository } from '../repositories/schoolRepository';
+import { processObservation } from './CurrentLocationProjectionService';
 import type { TelemetryObservation } from '../domain/telemetryContract';
 
 // GPS Simulation Engine (Phase 4A) — the FIRST real-time mobility producer.
@@ -348,6 +349,12 @@ export function advanceGpsSimulation(id: string): TelemetryObservation {
     validateObservation(observation);
     session.observations.push(observation);
     session.lastObservation = observation;
+    // Phase 4C — feeds the same current-location projection real device
+    // telemetry does, WITHOUT ever writing a telemetry_observations row
+    // (the simulator is never a registered device — see
+    // CurrentLocationProjectionService's header comment for the full
+    // rationale). Best-effort, never throws, never blocks the tick.
+    processObservation(observation);
 
     if (reachedEnd) {
       session.status = 'COMPLETED';

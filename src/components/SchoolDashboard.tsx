@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { School, Student, Bus } from '../types';
 import { AuthUser } from './AuthModal';
 import { SchoolJourneyOperationsPanel } from './SchoolJourneyOperationsPanel';
+import { CurrentLocationPanel } from './CurrentLocationPanel';
 import {
   Building2,
   Users,
@@ -252,6 +253,17 @@ export const SchoolDashboard: React.FC<SchoolDashboardProps> = ({
       ) : (
         <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center text-slate-500 text-xs font-medium">
           سجّل الدخول لعرض عمليات الرحلات الطلابية المباشرة.
+        </div>
+      )}
+
+      {/* Current Location Projection (Phase 4C) — derived read model over telemetry history, not raw GPS points */}
+      {currentUser?.email && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-3">
+          <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+            <BusIcon className="w-4 h-4 text-blue-600" />
+            <span>المواقع الحالية للأسطول (Current Location)</span>
+          </h3>
+          <CurrentLocationPanel userEmail={currentUser.email} scope={{ type: 'fleet' }} />
         </div>
       )}
     </div>

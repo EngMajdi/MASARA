@@ -376,3 +376,43 @@ export const telemetryObservations = sqliteTable(
     tripOccurredIdx: index('telemetry_observations_trip_occurred_idx').on(table.tripId, table.occurredAt),
   })
 );
+
+// Phase 4C — derived read model ONLY. `telemetry_observations` remains the
+// immutable historical source of truth; this table always holds exactly
+// ONE row per bus — "the latest accepted observation currently considered
+// this bus's current location" (spec §3/§9). It is fully rebuildable from
+// telemetry_observations (see CurrentLocationProjectionService.rebuild) and
+// is never itself a source of truth for anything. `observationId` is
+// intentionally NOT a foreign key into telemetry_observations: a
+// SIMULATION-sourced observation (Phase 4A) never gets a
+// telemetry_observations row at all (the simulator is explicitly never a
+// registrable device — Phase 4B spec §42) and still needs to reach this
+// projection directly, so this column just carries whichever id the
+// producer's own TelemetryObservation object had.
+//
+// This is a completely separate concept from the pre-existing
+// buses.currentLat/currentLng/speedKmh convenience fields (Phase 1) — those
+// remain untouched by telemetry (Phase 4A/4B/4C all deliberately avoid
+// writing to them; see server/services/CurrentLocationProjectionService.ts).
+export const currentLocationProjection = sqliteTable(
+  'current_location_projection',
+  {
+    busId: text('bus_id').primaryKey().references(() => buses.id),
+    tripId: text('trip_id').references(() => trips.id),
+    observationId: text('observation_id').notNull(),
+    sourceEventId: text('source_event_id').notNull(),
+    source: text('source').notNull(), // 'DEVICE' | 'GPS_PROVIDER' | 'SIMULATION' — preserved exactly from the producer, never client-supplied
+    sequence: integer('sequence'),
+    latitude: real('latitude').notNull(),
+    longitude: real('longitude').notNull(),
+    speedKmh: real('speed_kmh'),
+    heading: real('heading'),
+    accuracyMeters: real('accuracy_meters'),
+    occurredAt: integer('occurred_at', { mode: 'timestamp' }).notNull(),
+    receivedAt: integer('received_at', { mode: 'timestamp' }).notNull(),
+    updatedAt: updatedAt(), // when this PROJECTION row was last (re)written — distinct from occurredAt/receivedAt, which describe the observation itself
+  },
+  (table) => ({
+    tripIdx: index('current_location_projection_trip_idx').on(table.tripId),
+  })
+);

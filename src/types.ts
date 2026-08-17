@@ -397,3 +397,25 @@ export interface GpsSimulationSession {
   lastObservation: TelemetryObservation | null;
   errorMessage: string | null;
 }
+
+// --- Phase 4C: Current Location Projection ---
+// Mirrors the public shape returned by GET /api/telemetry/current/:busId
+// and /api/telemetry/current/fleet — a derived read model, not raw telemetry
+// history (that remains GET /api/telemetry/observations, a separate endpoint).
+
+export type LocationFreshness = 'FRESH' | 'STALE';
+
+export interface CurrentLocation {
+  busId: string;
+  tripId: string | null;
+  observationId: string;
+  latitude: number;
+  longitude: number;
+  speed: number | null;
+  heading: number | null;
+  accuracy: number | null;
+  occurredAt: string;
+  receivedAt: string;
+  source: 'DEVICE' | 'GPS_PROVIDER' | 'SIMULATION';
+  freshness: LocationFreshness;
+}

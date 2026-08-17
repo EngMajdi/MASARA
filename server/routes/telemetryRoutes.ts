@@ -8,7 +8,8 @@ import {
   type TelemetryIngestionPayload,
 } from '../services/TelemetryIngestionService';
 import { telemetryObservationRepository } from '../repositories/telemetryObservationRepository';
-import { requireTelemetryDevice, requireTelemetryReader } from '../services/authz';
+import { requireTelemetryDevice, requireTelemetryReader, requireOperationalUser } from '../services/authz';
+import { getCurrentLocation, listFleetCurrentLocations, type CurrentLocationView } from '../services/CurrentLocationProjectionService';
 
 // The telemetry ingestion boundary (Phase 4B §13) — one endpoint, one
 // observation per request (spec §49/§50, no batch ingestion). This is
@@ -63,4 +64,56 @@ telemetryRouter.get('/api/telemetry/observations', (req, res) => {
     limit: Number.isFinite(limitNum) ? limitNum : undefined,
   });
   res.json(observations);
+});
+
+// ---------------------------------------------------------------------------
+// Current Location Projection (Phase 4C) — conceptually distinct from the
+// history endpoint above (spec §38): "what was observed?" vs. "what is the
+// latest known location?". Reads current_location_projection directly, a
+// single bounded query either way — never a scan of telemetry_observations
+// per request (spec §16/§40). There is deliberately no POST/PUT/PATCH/
+// DELETE here — the projection is server-derived only (spec §28).
+// ---------------------------------------------------------------------------
+
+function toPublicLocation(view: CurrentLocationView) {
+  return {
+    busId: view.busId,
+    tripId: view.tripId,
+    observationId: view.observationId,
+    latitude: view.latitude,
+    longitude: view.longitude,
+    speed: view.speedKmh,
+    heading: view.heading,
+    accuracy: view.accuracyMeters,
+    occurredAt: view.occurredAt.toISOString(),
+    receivedAt: view.receivedAt.toISOString(),
+    source: view.source,
+    freshness: view.freshness,
+  };
+}
+
+// Fleet-wide read — admin/school only (spec §16/§82): there is no
+// "authorized scope" a driver could supply for an all-buses query, unlike
+// the single-bus lookup below, so this reuses the same operational gate as
+// every other fleet-wide operational summary (e.g. GET /api/operations/journeys).
+// Registered BEFORE the /:busId route so "fleet" is never parsed as a busId.
+telemetryRouter.get('/api/telemetry/current/fleet', (req, res) => {
+  const guard = requireOperationalUser(req.query.userEmail);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+  res.json(listFleetCurrentLocations().map(toPublicLocation));
+});
+
+telemetryRouter.get('/api/telemetry/current/:busId', (req, res) => {
+  // Authorization happens BEFORE any existence/data check (spec §15) — a
+  // driver requesting another driver's bus gets the same 403 whether or
+  // not that bus even has a current-location row yet.
+  const guard = requireTelemetryReader(req.query.userEmail, { busId: req.params.busId });
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
+  const location = getCurrentLocation(req.params.busId);
+  if (!location) {
+    // No fabricated coordinates (spec §42) — an explicit, honest empty result.
+    return res.status(404).json({ error: 'لا يوجد موقع حالي معروف لهذه الحافلة بعد.' });
+  }
+  res.json(toPublicLocation(location));
 });
