@@ -100,15 +100,31 @@ import type { EventSource } from './eventTaxonomy';
 
 /**
  * One raw location observation from a physical system. FUTURE CONTRACT ONLY
- * — no table, no producer. Minimum fields are what any provider can
- * realistically be expected to supply; everything else is optional
- * enrichment a richer provider may include (spec §15).
+ * for real hardware — but Phase 4A's GPS Simulation Engine (see
+ * server/services/GpsSimulationEngine.ts) is the first REAL producer of this
+ * exact shape, so this interface now backs real (simulated) data, not just
+ * documentation. Minimum fields are what any provider can realistically be
+ * expected to supply; everything else is optional enrichment a richer
+ * provider may include (spec §15).
+ *
+ * Phase 4A minimal addition (spec Phase 4A §23 — "modify minimally, do not
+ * create a second interface"): `observationId` and `sequence` were missing
+ * — every producer needs a unique identity per observation (AC-05) and a
+ * monotonic ordering counter distinct from occurredAt (AC-07/§22), and
+ * neither can be safely derived from the fields that already existed here.
+ * `tripId` was added as optional because a simulation producer already
+ * knows which trip it's scoped to and can supply it directly, whereas a
+ * future real DEVICE/GPS_PROVIDER producer generally won't — that case
+ * still goes through TelemetryCorrelation below to resolve it.
  */
 export interface TelemetryObservation {
   // --- Identity & idempotency (required minimum) ---
+  observationId: string; // this observation's own unique id (never reuse tripId/busId/journeyId — spec §20)
   sourceEventId: string; // the provider's own event id — see idempotency note above
   source: Extract<EventSource, 'DEVICE' | 'GPS_PROVIDER' | 'SIMULATION'>; // never a real driver/school/admin source
   busId: string; // correlates to the existing `buses` table — Trip stays authoritative for bus/route/driver (spec §11/§14)
+  tripId?: string | null; // optional — populated directly by producers (like simulation) that already know it; otherwise resolved via TelemetryCorrelation
+  sequence: number; // monotonically increasing within one producer session (spec §22) — never authoritative for physical time, only ordering/dedup/debugging
 
   // --- Time (required minimum — see occurredAt vs receivedAt above) ---
   occurredAt: Date; // when the device says it happened — untrusted until validated

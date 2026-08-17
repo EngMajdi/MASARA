@@ -13,6 +13,7 @@ import { agentRouter } from './server/routes/agentRoutes';
 import { simulationRouter } from './server/routes/simulationRoutes';
 import { operationsRouter } from './server/routes/operationsRoutes';
 import { journeyRouter } from './server/routes/journeyRoutes';
+import { gpsSimulationRouter } from './server/routes/gpsSimulationRoutes';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -27,6 +28,8 @@ app.use(simulationRouter);
 app.use(operationsRouter);
 // Phase 3A: Journey Core — likewise additive.
 app.use(journeyRouter);
+// Phase 4A: GPS Simulation Engine — likewise additive.
+app.use(gpsSimulationRouter);
 
 // In-memory application state
 let schools = [...INITIAL_SCHOOLS];

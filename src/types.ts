@@ -352,3 +352,48 @@ export interface GovernedRouteStop {
   lng: number;
   orderSequence: number;
 }
+
+// --- Phase 4A: GPS Simulation Engine ---
+// Mirrors server/services/GpsSimulationEngine.ts + server/domain/telemetryContract.ts
+// — a SEPARATE session/status vocabulary from Phase 2B's SimulationSession
+// (spec §19 — must stay clearly distinct, never merged).
+
+export type GpsSimulationStatus = 'RUNNING' | 'PAUSED' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+export type SpeedProfile = 'STOPPED' | 'SLOW' | 'NORMAL' | 'FAST';
+
+export interface TelemetryObservation {
+  observationId: string;
+  sourceEventId: string;
+  source: 'SIMULATION' | 'DEVICE' | 'GPS_PROVIDER';
+  busId: string;
+  tripId: string | null;
+  sequence: number;
+  occurredAt: string;
+  receivedAt: string;
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+  speed?: number;
+  heading?: number;
+}
+
+export interface GpsSimulationSession {
+  id: string;
+  tripId: string;
+  busId: string;
+  routeId: string;
+  status: GpsSimulationStatus;
+  speedProfile: SpeedProfile;
+  tickSeconds: number;
+  speedMultiplier: number;
+  createdBy: string;
+  startedAt: string;
+  simulatedTime: string;
+  currentLat: number;
+  currentLng: number;
+  currentHeading: number | null;
+  sequence: number;
+  observations: TelemetryObservation[];
+  lastObservation: TelemetryObservation | null;
+  errorMessage: string | null;
+}
