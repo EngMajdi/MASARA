@@ -317,3 +317,62 @@ export const auditLogs = sqliteTable(
     studentIdx: index('audit_logs_student_idx').on(table.studentId, table.createdAt),
   })
 );
+
+// Phase 4B — Telemetry Ingestion Boundary. A device is NOT a school user
+// (spec §12) — it authenticates with its own hashed secret (see
+// server/services/deviceCredentials.ts, same scrypt+salt convention as
+// seed.ts's hashPassword), never with a user email/password. providerType
+// is the ONLY source a device may claim (server-derived at ingestion,
+// spec §15/§41) — real values: 'DEVICE' | 'GPS_PROVIDER'. Never 'SIMULATION'
+// — the GPS simulator (Phase 4A) is never registered here (spec §42).
+// status: 'active' | 'disabled' | 'revoked'
+export const telemetryDevices = sqliteTable('telemetry_devices', {
+  id: id(),
+  busId: text('bus_id').notNull().references(() => buses.id),
+  providerType: text('provider_type').notNull().default('DEVICE'),
+  status: text('status').notNull().default('active'),
+  secretHash: text('secret_hash').notNull(), // scrypt(salt):hash — never plaintext, never returned by any API (spec §46)
+  label: text('label').notNull(),
+  lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+// Append-only telemetry history (spec §28/§29 — no UPDATE/DELETE route
+// exists for this table, mirroring audit_logs/boarding_events). Distinct
+// from audit_logs on purpose (spec §30/§123): this answers "what did the
+// physical system observe", not "what did MASARA/an actor do". busId is
+// persisted directly (the device's authoritative bus AT INGESTION TIME,
+// spec §94) rather than re-derived later from the device's current
+// association, so historical correlation survives a future device
+// reassignment. tripId is nullable — bus-only telemetry (no active trip
+// yet) is a valid, accepted observation (spec §51).
+export const telemetryObservations = sqliteTable(
+  'telemetry_observations',
+  {
+    id: id(),
+    sourceEventId: text('source_event_id').notNull(),
+    deviceId: text('device_id').notNull().references(() => telemetryDevices.id),
+    busId: text('bus_id').notNull().references(() => buses.id),
+    tripId: text('trip_id').references(() => trips.id),
+    source: text('source').notNull(), // 'DEVICE' | 'GPS_PROVIDER' — copied from telemetryDevices.providerType at ingestion time, never client-controlled
+    eventType: text('event_type').notNull().default('GPS_LOCATION_RECEIVED'), // Phase 3C's reserved telemetry event type — server-determined, never req.body.eventType
+    occurredAt: integer('occurred_at', { mode: 'timestamp' }).notNull(), // device-reported, validated (spec §18/§19), untrusted until checked
+    receivedAt: integer('received_at', { mode: 'timestamp' }).notNull(), // server-set only — never accepted from the client (spec §4/§67)
+    latitude: real('latitude').notNull(),
+    longitude: real('longitude').notNull(),
+    speedKmh: real('speed_kmh'),
+    heading: real('heading'),
+    accuracyMeters: real('accuracy_meters'),
+    sequence: integer('sequence'),
+    createdAt: createdAt(),
+  },
+  (table) => ({
+    // Database-level idempotency (spec §26) — the real defense against a
+    // concurrent double-submit, not an app-level SELECT-then-INSERT check.
+    deviceSourceEventUnique: uniqueIndex('telemetry_observations_device_source_event_unique').on(table.deviceId, table.sourceEventId),
+    deviceOccurredIdx: index('telemetry_observations_device_occurred_idx').on(table.deviceId, table.occurredAt),
+    busOccurredIdx: index('telemetry_observations_bus_occurred_idx').on(table.busId, table.occurredAt),
+    tripOccurredIdx: index('telemetry_observations_trip_occurred_idx').on(table.tripId, table.occurredAt),
+  })
+);

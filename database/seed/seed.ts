@@ -19,6 +19,8 @@ import {
   actionVerifications,
   auditLogs,
   journeys,
+  telemetryObservations,
+  telemetryDevices,
 } from '../schema';
 
 // Deterministic synthetic data only — no real children's information (spec §7/§17).
@@ -31,6 +33,13 @@ function hashPassword(password: string): string {
 
 function clearAll() {
   // Deepest children first, respecting FK order.
+  // Phase 4B: telemetry_observations references telemetry_devices, buses,
+  // and trips — must go before all three; telemetry_devices references
+  // buses — must go before buses (this exact bug class — a new table
+  // forgotten by clearAll — has recurred every phase that added one; see
+  // tests/database/seedIdempotency.test.ts, extended again for this table).
+  db.delete(telemetryObservations).run();
+  db.delete(telemetryDevices).run();
   db.delete(auditLogs).run();
   db.delete(actionVerifications).run();
   db.delete(actions).run();

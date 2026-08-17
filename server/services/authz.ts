@@ -1,8 +1,10 @@
 import { userRepository } from '../repositories/userRepository';
 import { driverRepository } from '../repositories/driverRepository';
 import { tripRepository } from '../repositories/tripRepository';
+import { telemetryDeviceRepository } from '../repositories/telemetryDeviceRepository';
 import { OPERATIONAL_ROLES, JOURNEY_READ_ROLES } from '../domain/roles';
 import type { JourneyActor } from './JourneyService';
+import { parseDeviceBearerToken, verifyDeviceSecret } from './deviceCredentials';
 
 export type GovernedUser = NonNullable<ReturnType<typeof userRepository.findById>>;
 export type AuthzGuard = { ok: true; user: GovernedUser } | { ok: false; status: number; error: string };
@@ -109,4 +111,81 @@ export function requireJourneyActor(email: unknown, tripId: string): JourneyAuth
   }
 
   return { ok: false, status: 403, error: 'هذا المستخدم لا يملك صلاحية تعديل حالة الرحلة الطلابية.' };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4B — Telemetry device identity. A GPS device is NOT a school user
+// (spec §12) — it authenticates with its own hashed secret via an
+// `Authorization: Bearer <deviceId>.<secret>` header, never with a user
+// email. This is a dedicated boundary, deliberately not layered on top of
+// requireOperationalUser, whose semantics are specifically "a human user
+// with this role".
+// ---------------------------------------------------------------------------
+
+export type AuthenticatedTelemetryDevice = { id: string; busId: string; providerType: 'DEVICE' | 'GPS_PROVIDER' };
+export type TelemetryDeviceAuthResult = { ok: true; device: AuthenticatedTelemetryDevice } | { ok: false; status: number; error: string };
+
+/**
+ * Authenticates a device from its Authorization header. Every failure path
+ * — missing header, unknown device, wrong secret, disabled, revoked —
+ * returns the exact same status/message (spec §47: never let a response
+ * reveal which of those was actually true; that would let an attacker
+ * enumerate valid device ids or probe device status).
+ */
+export function requireTelemetryDevice(authorizationHeader: unknown): TelemetryDeviceAuthResult {
+  const GENERIC_FAILURE = { ok: false as const, status: 401, error: 'بيانات اعتماد الجهاز غير صالحة.' };
+
+  const parsed = parseDeviceBearerToken(authorizationHeader);
+  if (!parsed) return GENERIC_FAILURE;
+
+  const device = telemetryDeviceRepository.findById(parsed.deviceId);
+  if (!device) return GENERIC_FAILURE;
+  if (device.status !== 'active') return GENERIC_FAILURE; // disabled or revoked — same response as unknown (spec §6/§47)
+  if (!verifyDeviceSecret(parsed.secret, device.secretHash)) return GENERIC_FAILURE;
+
+  return {
+    ok: true,
+    device: { id: device.id, busId: device.busId, providerType: device.providerType as 'DEVICE' | 'GPS_PROVIDER' },
+  };
+}
+
+/**
+ * Telemetry read access (spec §82/§83). Admin/school get broad access,
+ * same as every other operational read in this codebase. A driver MUST
+ * supply a busId or tripId they are actually assigned to — an unscoped
+ * driver query is rejected outright rather than silently returning
+ * everything, since there is no "driver's own telemetry" without a target
+ * to scope to. Parent falls through to the final rejection — no parent
+ * telemetry access exists in Phase 4B (spec §82/§115).
+ */
+export function requireTelemetryReader(email: unknown, scope: { busId?: string; tripId?: string } = {}): AuthzGuard {
+  if (typeof email !== 'string' || !email) {
+    return { ok: false, status: 400, error: 'userEmail مطلوب.' };
+  }
+  const user = userRepository.findByEmail(email);
+  if (!user) return { ok: false, status: 404, error: 'المستخدم غير موجود في نظام الحوكمة.' };
+
+  if (user.role === 'admin' || user.role === 'school') {
+    return { ok: true, user };
+  }
+
+  if (user.role === 'driver') {
+    const driver = driverRepository.findByUserId(user.id);
+    if (!driver) return { ok: false, status: 403, error: 'لا يوجد سجل سائق مرتبط بهذا المستخدم.' };
+
+    if (scope.tripId) {
+      const trip = tripRepository.findById(scope.tripId);
+      if (!trip) return { ok: false, status: 404, error: 'الرحلة غير موجودة.' };
+      if (trip.driverId !== driver.id) return { ok: false, status: 403, error: 'هذا السائق غير مُكلّف بهذه الرحلة.' };
+      return { ok: true, user };
+    }
+    if (scope.busId) {
+      const assigned = tripRepository.findByBusId(scope.busId).some((t) => t.driverId === driver.id);
+      if (!assigned) return { ok: false, status: 403, error: 'هذا السائق غير مُكلّف بهذه الحافلة.' };
+      return { ok: true, user };
+    }
+    return { ok: false, status: 422, error: 'يجب تحديد busId أو tripId عند الاطلاع على بيانات GPS كسائق.' };
+  }
+
+  return { ok: false, status: 403, error: 'هذا المستخدم لا يملك صلاحية الاطلاع على بيانات تتبع GPS.' };
 }

@@ -29,6 +29,13 @@
       "when": 1786946545207,
       "tag": "0003_rich_misty_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1786984144704,
+      "tag": "0004_rich_madrox",
+      "breakpoints": true
     }
   ]
 }
