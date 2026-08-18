@@ -6,11 +6,11 @@ import { routeRepository } from '../repositories/routeRepository';
 import { notificationRepository } from '../repositories/notificationRepository';
 import { resolveAuthorizedStudents } from './ParentAccessService';
 import { isEligibleForNotification, resolveCategory, resolvePriority, formatNotificationContent } from './NotificationPolicy';
-import { InAppNotificationProvider } from './NotificationDeliveryProvider';
+import { deliverToAllChannels } from './NotificationDeliveryManager';
 import type { NotificationCategory, NotificationPriority, NotificationStatus, NotificationView } from '../domain/notificationContract';
 import type { GovernedUser } from './authz';
 
-// Phase 5B — the notification domain service. This file imports NO
+// Phase 5B/5C — the notification domain service. This file imports NO
 // mutating function from JourneyService, JourneyStateMachine,
 // TelemetryIngestionService, CurrentLocationProjectionService (write path),
 // ActionExecutor, PolicyEngine, or MasaraOperationsAgent — the governance
@@ -24,6 +24,13 @@ import type { GovernedUser } from './authz';
 // this service only ever READS, filtered through NotificationPolicy's
 // closed allow-list, for a recipient resolved exclusively via
 // ParentAccessService.resolveAuthorizedStudents — never from client input.
+//
+// Phase 5C adds pluggable, provider-neutral DELIVERY on top of this
+// unchanged creation pipeline (deliverToAllChannels/NotificationDeliveryManager)
+// — creation and delivery remain two separate concepts: a notification
+// exists and is readable by the parent in-app the moment insertIfAbsent
+// creates its row, regardless of whether PUSH/SMS/EMAIL are configured,
+// reachable, or even attempted.
 
 export class NotificationNotFoundError extends Error {}
 export class NotificationAccessDeniedError extends Error {}
@@ -83,8 +90,19 @@ export function processPendingNotificationsForParent(parentUser: GovernedUser): 
       // insertIfAbsent returns null when the (recipient, sourceEventId)
       // pair already exists (spec §10) — reprocessing is then a genuine
       // no-op, including skipping re-delivery of an already-delivered row.
+      // Delivery never creates another notification row and never repeats
+      // for an existing one — it only ever runs once, immediately after
+      // insertIfAbsent actually creates a NEW row (spec "Retry /
+      // Idempotency": delivery must operate on the same notification,
+      // never trigger a second creation).
       if (createdId) {
-        InAppNotificationProvider.deliver(createdId);
+        deliverToAllChannels({
+          notificationId: createdId,
+          title: content.title,
+          body: content.body,
+          priority,
+          recipient: { userId: parentUser.id, email: parentUser.email, name: parentUser.name },
+        });
       }
     }
   }

@@ -1,34 +1,78 @@
 import { notificationRepository } from '../repositories/notificationRepository';
+import type { NotificationPriority } from '../domain/notificationContract';
 
-// Phase 5B — provider-neutral delivery abstraction (spec §16). Nothing in
-// NotificationService depends on HOW a notification reaches a parent, only
-// on this interface. A future PushNotificationProvider/SmsNotificationProvider
-// /EmailNotificationProvider implements the same shape without
-// NotificationService's domain logic changing at all. No external provider
-// is connected in this phase (spec §4) — InAppNotificationProvider below is
-// the only implementation, and it is a REAL one, not a stub: for an in-app
-// notification, "delivery" IS the row existing in a table the parent's own
-// read API already serves, so there is no separate transmission step to
-// simulate.
+// Phase 5B/5C — provider-neutral delivery abstraction. Nothing in
+// NotificationService/NotificationDeliveryManager depends on HOW a
+// notification reaches a parent, only on this interface. A future real
+// PushNotificationProvider/SmsNotificationProvider/EmailNotificationProvider
+// implements the same shape without NotificationService's, NotificationPolicy's,
+// or ParentAccessService's domain logic changing at all.
+
+export type NotificationChannel = 'IN_APP' | 'PUSH' | 'SMS' | 'EMAIL';
+
+/**
+ * Four distinct outcomes (Phase 5C), never collapsed into a boolean:
+ *   SUCCESS     — the channel actually delivered (or, for IN_APP, made the
+ *                 notification visible in the parent's own read API).
+ *   FAILED      — a real delivery attempt was made and it threw/errored.
+ *   UNAVAILABLE — the channel is enabled but cannot actually deliver right
+ *                 now (missing credentials, or — in this phase — no real
+ *                 vendor integration exists at all). Never reported as
+ *                 SUCCESS; this is the honest default for PUSH/SMS/EMAIL
+ *                 today, since no external provider is connected.
+ *   SKIPPED     — the channel is disabled by configuration; no attempt was
+ *                 made at all.
+ */
+export type DeliveryOutcome = 'SUCCESS' | 'FAILED' | 'UNAVAILABLE' | 'SKIPPED';
 
 export interface DeliveryResult {
-  ok: boolean;
+  outcome: DeliveryOutcome;
   failureReason?: string;
 }
 
-export interface NotificationDeliveryProvider {
-  deliver(notificationId: string): DeliveryResult;
+/**
+ * Exactly the already-deterministic content NotificationPolicy produced —
+ * a provider receives this payload verbatim and can never alter it, never
+ * regenerate it, never call an LLM. `recipient` carries only what the
+ * governed `users` table already has (id/email/name) — no phone number or
+ * push token exists anywhere in this schema, so a provider that needed one
+ * would have nothing to send to; that is itself part of why PUSH/SMS remain
+ * honest UNAVAILABLE boundaries in this phase rather than real integrations.
+ */
+export interface NotificationDeliveryPayload {
+  notificationId: string;
+  title: string;
+  body: string;
+  priority: NotificationPriority;
+  recipient: { userId: string; email: string; name: string };
 }
 
+export interface NotificationDeliveryProvider {
+  readonly channel: NotificationChannel;
+  deliver(payload: NotificationDeliveryPayload): DeliveryResult;
+}
+
+/**
+ * The one REAL implementation (unchanged from Phase 5B in behavior): for an
+ * in-app notification, "delivery" IS the row existing in a table the
+ * parent's own read API already serves, so there is no separate
+ * transmission step to simulate. This is also the only provider whose
+ * result is persisted onto the `notifications` row itself
+ * (status/sentAt/failedAt) — those columns have represented the IN_APP
+ * channel specifically since Phase 5B, and continue to (see
+ * NotificationDeliveryManager's header comment for why Phase 5C adds no
+ * migration for the new external channels).
+ */
 export const InAppNotificationProvider: NotificationDeliveryProvider = {
-  deliver(notificationId: string): DeliveryResult {
+  channel: 'IN_APP',
+  deliver(payload: NotificationDeliveryPayload): DeliveryResult {
     try {
-      notificationRepository.markSent(notificationId);
-      return { ok: true };
+      notificationRepository.markSent(payload.notificationId);
+      return { outcome: 'SUCCESS' };
     } catch (err) {
       const reason = err instanceof Error ? err.message : 'حدث خطأ غير متوقع أثناء تسليم الإشعار.';
-      notificationRepository.markFailed(notificationId, reason);
-      return { ok: false, failureReason: reason };
+      notificationRepository.markFailed(payload.notificationId, reason);
+      return { outcome: 'FAILED', failureReason: reason };
     }
   },
 };
