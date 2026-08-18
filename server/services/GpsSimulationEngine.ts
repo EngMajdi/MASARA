@@ -86,45 +86,13 @@ export interface GpsSimulationConfig {
 const sessions = new Map<string, GpsSimulationSession>();
 
 // ---------------------------------------------------------------------------
-// Geometry — plain-JS, no geospatial dependency (spec §46: Haversine is
-// acceptable, nothing heavier is needed).
+// Geometry — moved to server/domain/geo.ts in Phase 4D so EtaService can
+// reuse the exact same implementation (spec Phase 4D §9 — no second
+// Haversine function). Re-exported here unchanged so every existing import
+// of these names from GpsSimulationEngine keeps working.
 // ---------------------------------------------------------------------------
-
-const EARTH_RADIUS_M = 6_371_000;
-
-function toRad(deg: number): number {
-  return (deg * Math.PI) / 180;
-}
-function toDeg(rad: number): number {
-  return (rad * 180) / Math.PI;
-}
-
-/** Great-circle distance in meters (spec §46). */
-export function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-  return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
-}
-
-/** Initial compass bearing A->B in degrees [0,360). Null when A and B coincide — never invent a heading (spec §12). */
-export function initialBearingDegrees(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number | null {
-  if (a.lat === b.lat && a.lng === b.lng) return null;
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const y = Math.sin(dLng) * Math.cos(lat2);
-  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
-  return (toDeg(Math.atan2(y, x)) + 360) % 360;
-}
-
-/** Simple linear interpolation between A and B at fraction t∈[0,1] — sufficient at this scale (spec §9, "no geographic perfection required"). */
-export function interpolatePosition(a: { lat: number; lng: number }, b: { lat: number; lng: number }, t: number): { lat: number; lng: number } {
-  const clamped = Math.max(0, Math.min(1, t));
-  return { lat: a.lat + (b.lat - a.lat) * clamped, lng: a.lng + (b.lng - a.lng) * clamped };
-}
+export { haversineMeters, initialBearingDegrees, interpolatePosition } from '../domain/geo';
+import { haversineMeters, interpolatePosition, initialBearingDegrees } from '../domain/geo';
 
 // ---------------------------------------------------------------------------
 // Route resolution

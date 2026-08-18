@@ -419,3 +419,45 @@ export interface CurrentLocation {
   source: 'DEVICE' | 'GPS_PROVIDER' | 'SIMULATION';
   freshness: LocationFreshness;
 }
+
+// --- Phase 4D: ETA Intelligence ---
+// Mirrors the public shape returned by GET /api/eta/bus/:busId,
+// GET /api/eta/trip/:tripId, and GET /api/eta/fleet — deterministic,
+// explainable estimates only. Never an LLM output, never fabricated traffic.
+
+export type EtaStatus = 'ON_TIME' | 'DELAYED' | 'STALE' | 'UNKNOWN';
+export type EtaConfidence = 'HIGH' | 'MEDIUM' | 'LOW';
+export type EtaSourceKind = 'TELEMETRY' | 'SIMULATION';
+export type DelayClassification = 'ON_TIME' | 'MINOR_DELAY' | 'SIGNIFICANT_DELAY';
+
+export interface EtaExplanation {
+  reason: string;
+  freshLocation: boolean;
+  validSpeed: boolean;
+  routeGeometryAvailable: boolean;
+}
+
+export interface EtaEstimateView {
+  busId: string;
+  tripId: string | null;
+  routeId: string | null;
+  nextStopId: string | null;
+  nextStopName: string | null;
+  estimatedArrivalAt: string | null;
+  finalDestinationEtaAt: string | null;
+  remainingDistanceMeters: number | null;
+  remainingToDestinationMeters: number | null;
+  estimatedTravelSeconds: number | null;
+  currentSpeedKmh: number | null;
+  effectiveSpeedKmh: number | null;
+  confidence: EtaConfidence;
+  status: EtaStatus;
+  source: EtaSourceKind | null;
+  calculatedAt: string;
+  explanation: EtaExplanation;
+  delay: {
+    scheduledArrivalAt: string;
+    delaySeconds: number;
+    classification: DelayClassification;
+  } | null;
+}

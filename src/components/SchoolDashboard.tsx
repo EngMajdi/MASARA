@@ -3,6 +3,7 @@ import { School, Student, Bus } from '../types';
 import { AuthUser } from './AuthModal';
 import { SchoolJourneyOperationsPanel } from './SchoolJourneyOperationsPanel';
 import { CurrentLocationPanel } from './CurrentLocationPanel';
+import { EtaPanel } from './EtaPanel';
 import {
   Building2,
   Users,
@@ -264,6 +265,17 @@ export const SchoolDashboard: React.FC<SchoolDashboardProps> = ({
             <span>المواقع الحالية للأسطول (Current Location)</span>
           </h3>
           <CurrentLocationPanel userEmail={currentUser.email} scope={{ type: 'fleet' }} />
+        </div>
+      )}
+
+      {/* ETA Intelligence (Phase 4D) — deterministic, explainable estimates over the current-location projection + route geometry */}
+      {currentUser?.email && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-3">
+          <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+            <Clock className="w-4 h-4 text-blue-600" />
+            <span>تقديرات وقت الوصول (ETA Intelligence)</span>
+          </h3>
+          <EtaPanel userEmail={currentUser.email} scope={{ type: 'fleet' }} />
         </div>
       )}
     </div>

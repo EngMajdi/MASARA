@@ -1,0 +1,60 @@
+import { Router } from 'express';
+import { getBusEta, getTripEta, getFleetEta } from '../services/EtaService';
+import { requireTelemetryReader, requireOperationalUser } from '../services/authz';
+
+// ETA Intelligence read APIs (Phase 4D §16) — reuses Phase 4C's exact
+// authorization model unchanged (requireTelemetryReader / requireOperationalUser):
+// admin/school broad, driver scoped to their own bus/trip, parent excluded,
+// unauthenticated/unknown rejected. No new authorization concept was
+// introduced — the ETA boundary is exactly as safe as the telemetry read
+// boundary it sits on top of. Read-only: no POST/PUT/PATCH/DELETE exists
+// here at all.
+export const etaRouter = Router();
+
+function toPublicEta(eta: ReturnType<typeof getBusEta>) {
+  return {
+    busId: eta.busId,
+    tripId: eta.tripId,
+    routeId: eta.routeId,
+    nextStopId: eta.nextStopId,
+    nextStopName: eta.nextStopName,
+    estimatedArrivalAt: eta.estimatedArrivalAt ? eta.estimatedArrivalAt.toISOString() : null,
+    finalDestinationEtaAt: eta.finalDestinationEtaAt ? eta.finalDestinationEtaAt.toISOString() : null,
+    remainingDistanceMeters: eta.remainingDistanceMeters,
+    remainingToDestinationMeters: eta.remainingToDestinationMeters,
+    estimatedTravelSeconds: eta.estimatedTravelSeconds,
+    currentSpeedKmh: eta.currentSpeedKmh,
+    effectiveSpeedKmh: eta.effectiveSpeedKmh,
+    confidence: eta.confidence,
+    status: eta.status,
+    source: eta.source,
+    calculatedAt: eta.calculatedAt.toISOString(),
+    explanation: eta.explanation,
+    delay: eta.delay
+      ? {
+          scheduledArrivalAt: eta.delay.scheduledArrivalAt.toISOString(),
+          delaySeconds: eta.delay.delaySeconds,
+          classification: eta.delay.classification,
+        }
+      : null,
+  };
+}
+
+// Registered before /bus/:busId and /trip/:tripId so "fleet" is never parsed as an id.
+etaRouter.get('/api/eta/fleet', (req, res) => {
+  const guard = requireOperationalUser(req.query.userEmail);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+  res.json(getFleetEta().map(toPublicEta));
+});
+
+etaRouter.get('/api/eta/bus/:busId', (req, res) => {
+  const guard = requireTelemetryReader(req.query.userEmail, { busId: req.params.busId });
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+  res.json(toPublicEta(getBusEta(req.params.busId)));
+});
+
+etaRouter.get('/api/eta/trip/:tripId', (req, res) => {
+  const guard = requireTelemetryReader(req.query.userEmail, { tripId: req.params.tripId });
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+  res.json(toPublicEta(getTripEta(req.params.tripId)));
+});
