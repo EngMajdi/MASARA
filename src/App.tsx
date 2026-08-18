@@ -288,6 +288,7 @@ export default function App() {
               buses={buses}
               notifications={notifications}
               onUpdateStatus={handleUpdateStudentStatus}
+              currentUser={currentUser}
             />
           )}
 

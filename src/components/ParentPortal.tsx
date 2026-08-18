@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Student, Bus, SystemNotification } from '../types';
+import { AuthUser } from './AuthModal';
+import { ParentJourneyPanel } from './ParentJourneyPanel';
 import {
   Phone,
   MessageCircle,
@@ -29,6 +31,7 @@ interface ParentPortalProps {
   buses: Bus[];
   notifications: SystemNotification[];
   onUpdateStatus: (studentId: string, status: 'boarded' | 'absent') => void;
+  currentUser?: AuthUser | null;
 }
 
 const playChimeSound = () => {
@@ -56,7 +59,8 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({
   students,
   buses,
   notifications,
-  onUpdateStatus
+  onUpdateStatus,
+  currentUser
 }) => {
   const parentStudents = students.filter((s) => s.parentId === 'par-1');
   const [selectedStudentId, setSelectedStudentId] = useState<string>(
@@ -242,6 +246,16 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Parent Trust Read Model (Phase 5A) — real, governed Journey/Location/ETA data, replacing nothing below (the legacy demo cards stay as-is) */}
+      {currentUser?.email && (
+        <div className="space-y-3">
+          <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+            <span>رحلة الطالب المباشرة (بيانات النظام الفعلية)</span>
+          </h2>
+          <ParentJourneyPanel userEmail={currentUser.email} />
         </div>
       )}
 

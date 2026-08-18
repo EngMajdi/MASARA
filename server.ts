@@ -17,6 +17,7 @@ import { gpsSimulationRouter } from './server/routes/gpsSimulationRoutes';
 import { deviceRouter } from './server/routes/deviceRoutes';
 import { telemetryRouter } from './server/routes/telemetryRoutes';
 import { etaRouter } from './server/routes/etaRoutes';
+import { parentRouter } from './server/routes/parentRoutes';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -38,6 +39,8 @@ app.use(deviceRouter);
 app.use(telemetryRouter);
 // Phase 4D: ETA Intelligence — likewise additive.
 app.use(etaRouter);
+// Phase 5A: Parent Trust Read Model — likewise additive, read-only.
+app.use(parentRouter);
 
 // In-memory application state
 let schools = [...INITIAL_SCHOOLS];

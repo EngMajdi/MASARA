@@ -24,6 +24,7 @@ import {
   currentLocationProjection,
   etaAccuracyObservations,
 } from '../schema';
+import { DEMO_PARENT_PHONE_BY_EMAIL } from '../../server/domain/parentAccessContract';
 
 // Deterministic synthetic data only — no real children's information (spec §7/§17).
 
@@ -105,6 +106,12 @@ export function seed() {
     { id: crypto.randomUUID(), schoolId: school.id, name: 'الكابتن سعيد بن حمد البوسعيدي', email: 'driver1@masara.om', role: 'driver' },
     { id: crypto.randomUUID(), schoolId: school.id, name: 'الكابتن سالم بن خلفان المعمري', email: 'driver2@masara.om', role: 'driver' },
     { id: crypto.randomUUID(), schoolId: school.id, name: 'الكابتن ناصر بن راشد الهنائي', email: 'driver3@masara.om', role: 'driver' },
+    // Phase 5A — closes the one gap seed.ts's own prior comment already
+    // flagged: admin/school/driver1 were deliberately aligned with the
+    // legacy in-memory login store (server.ts) "by design"; parent was not.
+    // Same name/email as server.ts's legacy parent@masara.om row, so the
+    // Parent Trust Read Model resolves to a real governed identity.
+    { id: crypto.randomUUID(), schoolId: school.id, name: 'أحمد بن سيف البوسعيدي', email: 'parent@masara.om', role: 'parent' },
   ].map((u) => ({ ...u, passwordHash: hashPassword('password123') }));
   db.insert(users).values(seedUsers).run();
 
@@ -138,9 +145,15 @@ export function seed() {
   ];
   db.insert(routeStops).values(stopDefs).run();
 
+  // Phase 5A — the first two students on bus 101 are the demo parent's
+  // children (see server/domain/parentAccessContract.ts's header comment
+  // for the full DEMO-ONLY rationale). Every other student keeps the
+  // original generic auto-generated parentName/parentPhone, unchanged.
+  const demoParentPhone = DEMO_PARENT_PHONE_BY_EMAIL['parent@masara.om'];
   const studentDefs = Array.from({ length: 40 }, (_, i) => {
     const bus = busDefs[i % 2]; // pilot fleet: alternate the two active buses (bus 3 is a spare, no assigned students)
     const stop = stopDefs.filter((s) => (i % 2 === 0 ? s.routeId === routeDefs[0].id : s.routeId === routeDefs[1].id))[i % 2];
+    const isDemoParentChild = i === 0 || i === 1;
     return {
       id: crypto.randomUUID(),
       schoolId: school.id,
@@ -151,8 +164,8 @@ export function seed() {
       pickupLng: stop.lng + (i % 5) * 0.0008,
       pickupAddress: stop.name,
       seatNumber: String((i % bus.capacity) + 1),
-      parentName: parentName(i),
-      parentPhone: `+968 9${String(100000 + i * 37).slice(0, 6)}`,
+      parentName: isDemoParentChild ? 'أحمد بن سيف البوسعيدي' : parentName(i),
+      parentPhone: isDemoParentChild ? demoParentPhone : `+968 9${String(100000 + i * 37).slice(0, 6)}`,
     };
   });
   db.insert(students).values(studentDefs).run();

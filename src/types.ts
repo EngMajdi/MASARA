@@ -494,3 +494,53 @@ export interface EtaAccuracyView {
   bySource: AccuracyBreakdownGroup[];
   byHorizon: AccuracyBreakdownGroup[];
 }
+
+// --- Phase 5A: Parent Trust Read Model ---
+// Mirrors the public shape returned by GET /api/parent/journeys and
+// GET /api/parent/journeys/:journeyId/events. A pure composition over
+// Journey Core + Current Location Projection + EtaService — nothing here is
+// computed on the client, and null always means "genuinely unavailable",
+// never a fabricated placeholder.
+
+export interface ParentJourneyEventView {
+  id: string;
+  eventType: string;
+  occurredAt: string;
+  actorType: string;
+}
+
+export interface ParentJourneyView {
+  child: { id: string; name: string };
+  journey: {
+    id: string;
+    state: JourneyState;
+    currentStopId: string | null;
+    scheduledPickupTime: string | null;
+    scheduledDropoffTime: string | null;
+    boardedAt: string | null;
+    droppedOffAt: string | null;
+  } | null;
+  bus: { id: string; label: string } | null;
+  route: { id: string; name: string } | null;
+  driver: { displayName: string } | null;
+  location: {
+    latitude: number;
+    longitude: number;
+    speedKmh: number | null;
+    heading: number | null;
+    source: string;
+    freshness: 'FRESH' | 'STALE';
+    occurredAt: string;
+    receivedAt: string;
+  } | null;
+  eta: {
+    status: EtaStatus;
+    estimatedArrivalAt: string | null;
+    nextStopId: string | null;
+    confidence: EtaConfidence;
+    delaySeconds: number | null;
+    source: EtaSourceKind | null;
+    calculatedAt: string;
+  } | null;
+  lastEvent: ParentJourneyEventView | null;
+}

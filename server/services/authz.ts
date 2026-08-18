@@ -158,6 +158,25 @@ export function requireTelemetryDevice(authorizationHeader: unknown): TelemetryD
  * to scope to. Parent falls through to the final rejection — no parent
  * telemetry access exists in Phase 4B (spec §82/§115).
  */
+/**
+ * Phase 5A — Parent Trust Read Model boundary. Deliberately its own guard,
+ * not layered on requireOperationalUser/requireJourneyReader/
+ * requireTelemetryReader — a parent is a distinct identity with its own
+ * narrow, single-role scope (spec §4), never granted any of the broader
+ * operational/driver read access those guards provide.
+ */
+export function requireParentUser(email: unknown): AuthzGuard {
+  if (typeof email !== 'string' || !email) {
+    return { ok: false, status: 400, error: 'userEmail مطلوب.' };
+  }
+  const user = userRepository.findByEmail(email);
+  if (!user) return { ok: false, status: 404, error: 'المستخدم غير موجود في نظام الحوكمة.' };
+  if (user.role !== 'parent') {
+    return { ok: false, status: 403, error: 'هذه الميزة مخصصة لتطبيق ولي الأمر فقط.' };
+  }
+  return { ok: true, user };
+}
+
 export function requireTelemetryReader(email: unknown, scope: { busId?: string; tripId?: string } = {}): AuthzGuard {
   if (typeof email !== 'string' || !email) {
     return { ok: false, status: 400, error: 'userEmail مطلوب.' };

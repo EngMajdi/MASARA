@@ -130,3 +130,13 @@ describe('ETA accuracy validation never mutates governance/journey state (spec, 
     expect(etaAccuracyServiceSource).not.toMatch(/from ['"].*telemetryObservationRepository['"]/);
   });
 });
+
+// Phase 5A — Parent Trust Read Model guards.
+const parentRoutesSource = fs.readFileSync(path.resolve(__dirname, '../../server/routes/parentRoutes.ts'), 'utf8');
+
+describe('No generic event injection endpoint exists under /api/parent either (spec §13/§70/§120 regression, extended)', () => {
+  it('the aggregate route-source check also covers parentRoutes.ts', () => {
+    expect(allRoutesSource + parentRoutesSource).not.toMatch(/['"]\/api\/events['"]/);
+    expect(parentRoutesSource).not.toMatch(/\.(post|put|patch|delete)\(/);
+  });
+});
