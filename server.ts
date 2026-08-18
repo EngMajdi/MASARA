@@ -18,6 +18,7 @@ import { deviceRouter } from './server/routes/deviceRoutes';
 import { telemetryRouter } from './server/routes/telemetryRoutes';
 import { etaRouter } from './server/routes/etaRoutes';
 import { parentRouter } from './server/routes/parentRoutes';
+import { contactRouter } from './server/routes/contactRoutes';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -41,6 +42,8 @@ app.use(telemetryRouter);
 app.use(etaRouter);
 // Phase 5A: Parent Trust Read Model — likewise additive, read-only.
 app.use(parentRouter);
+// Phase 6A: Identity & Contact Foundation — likewise additive, self-service only.
+app.use(contactRouter);
 
 // In-memory application state
 let schools = [...INITIAL_SCHOOLS];

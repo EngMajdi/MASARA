@@ -177,6 +177,26 @@ export function requireParentUser(email: unknown): AuthzGuard {
   return { ok: true, user };
 }
 
+/**
+ * Phase 6A — "manage MY OWN record" boundary. Deliberately role-agnostic
+ * (unlike requireOperationalUser/requireParentUser/requireTelemetryReader):
+ * self-service contact management is a cross-role concept — admin, school,
+ * driver, and parent should all be able to manage their own EMAIL/SMS/PUSH
+ * contact addresses. This is NOT a new authorization model, just the same
+ * email->governed-user resolution every other guard already uses, without
+ * a role filter — ownership of a specific contact row is still re-derived
+ * per-request from the row itself (UserContactService), never from this
+ * guard alone.
+ */
+export function requireAuthenticatedUser(email: unknown): AuthzGuard {
+  if (typeof email !== 'string' || !email) {
+    return { ok: false, status: 400, error: 'userEmail مطلوب.' };
+  }
+  const user = userRepository.findByEmail(email);
+  if (!user) return { ok: false, status: 404, error: 'المستخدم غير موجود في نظام الحوكمة.' };
+  return { ok: true, user };
+}
+
 export function requireTelemetryReader(email: unknown, scope: { busId?: string; tripId?: string } = {}): AuthzGuard {
   if (typeof email !== 'string' || !email) {
     return { ok: false, status: 400, error: 'userEmail مطلوب.' };

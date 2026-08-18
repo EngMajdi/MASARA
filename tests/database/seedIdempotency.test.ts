@@ -13,6 +13,7 @@ import { etaAccuracyRepository } from '../../server/repositories/etaAccuracyRepo
 import { userRepository } from '../../server/repositories/userRepository';
 import { resolveAuthorizedStudents } from '../../server/services/ParentAccessService';
 import { processPendingNotificationsForParent, getUnreadCountForParent } from '../../server/services/NotificationService';
+import { createContact } from '../../server/services/UserContactService';
 
 describe('Seed script teardown order', () => {
   it('can reseed after governance tables have rows (predictions/recommendations/audit_logs) without FK errors', async () => {
@@ -84,6 +85,12 @@ describe('Seed script teardown order', () => {
     boardStudent(journey.id, { actorId: null, actorType: 'system' }); // STUDENT_BOARDED audit row -> eligible for notification
     processPendingNotificationsForParent(parentUser); // notifications row created through the real service, not a manual insert (spec §31)
     expect(getUnreadCountForParent(parentUser)).toBeGreaterThan(0);
+    expect(() => seed()).not.toThrow();
+  });
+
+  it('can reseed after user_contacts has rows too (Phase 6A — same recurring FK-order bug class, guarded again)', () => {
+    const admin = userRepository.findByEmail('admin@masara.om')!;
+    createContact(admin, { channel: 'SMS', value: '+96895550000' }); // user_contacts row, created through the real service
     expect(() => seed()).not.toThrow();
   });
 });

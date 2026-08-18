@@ -24,8 +24,11 @@ import {
   currentLocationProjection,
   etaAccuracyObservations,
   notifications,
+  userContacts,
 } from '../schema';
 import { DEMO_PARENT_PHONE_BY_EMAIL } from '../../server/domain/parentAccessContract';
+import { normalizeContactValue } from '../../server/services/ContactNormalization';
+import { userContactRepository } from '../../server/repositories/userContactRepository';
 
 // Deterministic synthetic data only — no real children's information (spec §7/§17).
 
@@ -50,6 +53,9 @@ function clearAll() {
   // Phase 5B: notifications references users, students, journeys, and
   // trips — must go before all four (same recurring bug class, guarded
   // again).
+  // Phase 6A: user_contacts references users — must go before it (same
+  // recurring bug class, guarded again).
+  db.delete(userContacts).run();
   db.delete(notifications).run();
   db.delete(etaAccuracyObservations).run();
   db.delete(currentLocationProjection).run();
@@ -119,6 +125,24 @@ export function seed() {
     { id: crypto.randomUUID(), schoolId: school.id, name: 'أحمد بن سيف البوسعيدي', email: 'parent@masara.om', role: 'parent' },
   ].map((u) => ({ ...u, passwordHash: hashPassword('password123') }));
   db.insert(users).values(seedUsers).run();
+
+  // Phase 6A — one minimal, deterministic demo contact for the seeded demo
+  // parent: their EMAIL, already verified (spec's explicit seed-only
+  // allowance — "For demo/seed purposes, controlled seed data may contain
+  // verified contacts if justified") since it is the exact same address
+  // they already log in with. No SMS/PUSH seed data — there is no
+  // legitimate phone/push-token value to seed without fabricating one
+  // ("do not create fake production identities").
+  const demoParent = seedUsers.find((u) => u.role === 'parent')!;
+  const demoParentEmail = normalizeContactValue('EMAIL', demoParent.email);
+  userContactRepository.create({
+    userId: demoParent.id,
+    channel: 'EMAIL',
+    value: demoParentEmail.value,
+    normalizedValue: demoParentEmail.normalizedValue,
+    verifiedAt: new Date(),
+    enabled: true,
+  });
 
   const driverDefs = [
     { userId: seedUsers[2].id, name: 'الكابتن سعيد بن حمد البوسعيدي', phone: '+968 9123 4567' },

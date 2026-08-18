@@ -506,3 +506,41 @@ export const notifications = sqliteTable(
     studentIdx: index('notifications_student_idx').on(table.studentId),
   })
 );
+
+// Phase 6A — Identity & Contact Foundation. The governed `users` row remains
+// the ONE authoritative identity (spec §3) — this table adds ONLY
+// channel-scoped contact ADDRESSES a user owns, never a second account/
+// identity/login concept. No phone/push-token column exists on `users`
+// itself (confirmed by this phase's own architecture audit) and none is
+// added here — a separate table is the additive, non-destructive choice.
+// `value` is the raw address as the user entered it; `normalizedValue` is
+// the deterministic, channel-specific normalized form
+// (ContactNormalization.ts) used for the uniqueness constraint below and
+// for any future lookup — never re-derived ad hoc elsewhere.
+// `verifiedAt`/`enabled` are STATE fields only in this phase: no OTP, no
+// verification link, no client-controlled write path sets verifiedAt (spec
+// §8) — every write to it in this codebase is either NULL (default) or a
+// deliberate, documented seed-data exception.
+export const userContacts = sqliteTable(
+  'user_contacts',
+  {
+    id: id(),
+    userId: text('user_id').notNull().references(() => users.id),
+    channel: text('channel').notNull(), // 'EMAIL' | 'SMS' | 'PUSH' — a closed set validated server-side (ContactContract.ts), never an arbitrary client string
+    value: text('value').notNull(),
+    normalizedValue: text('normalized_value').notNull(),
+    verifiedAt: integer('verified_at', { mode: 'timestamp' }),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => ({
+    // The real, database-enforced duplicate-prevention boundary (spec §12):
+    // one (user, channel, normalized address) identity can exist as at most
+    // one row, ever — disabling a contact toggles `enabled`, it never
+    // frees up the identity for a second insert.
+    userChannelValueUnique: uniqueIndex('user_contacts_user_channel_value_unique').on(table.userId, table.channel, table.normalizedValue),
+    userIdx: index('user_contacts_user_idx').on(table.userId),
+    userChannelIdx: index('user_contacts_user_channel_idx').on(table.userId, table.channel),
+  })
+);
