@@ -28,6 +28,29 @@ export type DeliveryOutcome = 'SUCCESS' | 'FAILED' | 'UNAVAILABLE' | 'SKIPPED';
 export interface DeliveryResult {
   outcome: DeliveryOutcome;
   failureReason?: string;
+  /** Phase 5D — a real vendor's own message/request id, when it returns one on SUCCESS. Never a raw provider response, never a credential. Not persisted anywhere today (see NotificationDeliveryManager's header comment) — returned in-memory only. */
+  providerMessageId?: string;
+}
+
+// Phase 5D — shared credential-redaction for provider error messages (spec
+// "External Provider Security": never let a provider error leak an
+// Authorization header, API key, or bearer token). Every provider's
+// exception-classification path runs its message through this before it
+// ever becomes a DeliveryResult.failureReason, a log line, or (in principle)
+// anything that could reach an API response.
+const SECRET_LIKE_PATTERNS: RegExp[] = [
+  /bearer\s+[a-z0-9._-]+/gi,
+  /api[_-]?key["']?\s*[:=]\s*["']?[a-z0-9._-]{8,}/gi,
+  /authorization["']?\s*[:=]\s*["']?[a-z0-9._-]{8,}/gi,
+  /sk_[a-z0-9]{8,}/gi,
+];
+
+export function sanitizeProviderErrorMessage(raw: string): string {
+  let sanitized = raw;
+  for (const pattern of SECRET_LIKE_PATTERNS) {
+    sanitized = sanitized.replace(pattern, '[REDACTED]');
+  }
+  return sanitized;
 }
 
 /**
