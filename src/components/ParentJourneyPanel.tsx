@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ParentJourneyEventView, ParentJourneyView } from '../types';
 import { getParentJourneys, getParentJourneyEvents } from '../services/parentApi';
 import { JourneyStatusBadge } from './JourneyStatusBadge';
+import { NotificationsPanel } from './NotificationsPanel';
 import { labelFor, iconFor, colorFor } from '../lib/eventDisplay';
 import { Bus, MapPin, Clock, RefreshCw, AlertTriangle, Inbox, Navigation, History, Radio } from 'lucide-react';
 
@@ -192,43 +193,53 @@ export const ParentJourneyPanel: React.FC<ParentJourneyPanelProps> = ({ userEmai
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userEmail]);
 
-  if (loading && !views) {
-    return (
-      <div className="flex items-center justify-center gap-2 py-8 text-slate-500 text-xs font-medium">
-        <RefreshCw className="w-4 h-4 animate-spin" />
-        <span>جاري تحميل بيانات رحلة الطالب...</span>
-      </div>
-    );
-  }
+  const renderJourneys = () => {
+    if (loading && !views) {
+      return (
+        <div className="flex items-center justify-center gap-2 py-8 text-slate-500 text-xs font-medium">
+          <RefreshCw className="w-4 h-4 animate-spin" />
+          <span>جاري تحميل بيانات رحلة الطالب...</span>
+        </div>
+      );
+    }
 
-  if (error) {
-    return (
-      <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-rose-800 text-xs flex items-center justify-between gap-3">
-        <span className="flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 shrink-0" />
-          <span>{error}</span>
-        </span>
-        <button onClick={load} className="font-bold underline shrink-0">
-          إعادة المحاولة
-        </button>
-      </div>
-    );
-  }
+    if (error) {
+      return (
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-rose-800 text-xs flex items-center justify-between gap-3">
+          <span className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>{error}</span>
+          </span>
+          <button onClick={load} className="font-bold underline shrink-0">
+            إعادة المحاولة
+          </button>
+        </div>
+      );
+    }
 
-  if (!views || views.length === 0) {
+    if (!views || views.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-2 py-8 text-slate-400 text-xs font-medium">
+          <Inbox className="w-6 h-6" />
+          <span>لا يوجد أبناء مرتبطون بحسابك حالياً.</span>
+        </div>
+      );
+    }
+
     return (
-      <div className="flex flex-col items-center justify-center gap-2 py-8 text-slate-400 text-xs font-medium">
-        <Inbox className="w-6 h-6" />
-        <span>لا يوجد أبناء مرتبطون بحسابك حالياً.</span>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {views.map((view) => (
+          <ChildJourneyCard key={view.child.id} view={view} userEmail={userEmail} />
+        ))}
       </div>
     );
-  }
+  };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      {views.map((view) => (
-        <ChildJourneyCard key={view.child.id} view={view} userEmail={userEmail} />
-      ))}
+    <div className="space-y-4">
+      {/* Governed Notifications (Phase 5B) — shown regardless of journey loading state, since a notification (e.g. a past incident/missed) can exist even with no currently active journey. */}
+      <NotificationsPanel userEmail={userEmail} />
+      {renderJourneys()}
     </div>
   );
 };

@@ -544,3 +544,27 @@ export interface ParentJourneyView {
   } | null;
   lastEvent: ParentJourneyEventView | null;
 }
+
+// --- Phase 5B: Governed Notifications ---
+// Mirrors the public shape returned by GET /api/parent/notifications,
+// GET /api/parent/notifications/unread-count, and
+// POST /api/parent/notifications/:id/read. A parent-safe communication
+// record only — no eventType, no sourceEventId, no journeyId/tripId
+// (matching the server DTO exactly, see server/domain/notificationContract.ts).
+
+export type NotificationPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL';
+export type NotificationStatus = 'PENDING' | 'SENT' | 'FAILED';
+export type NotificationCategory = 'BOARDING' | 'ARRIVAL' | 'DROPPED_OFF' | 'STATUS' | 'INCIDENT';
+
+export interface NotificationView {
+  id: string;
+  studentId: string;
+  category: NotificationCategory;
+  title: string;
+  body: string;
+  priority: NotificationPriority;
+  status: NotificationStatus;
+  createdAt: string;
+  sentAt: string | null;
+  readAt: string | null;
+}

@@ -23,6 +23,7 @@ import {
   telemetryDevices,
   currentLocationProjection,
   etaAccuracyObservations,
+  notifications,
 } from '../schema';
 import { DEMO_PARENT_PHONE_BY_EMAIL } from '../../server/domain/parentAccessContract';
 
@@ -46,6 +47,10 @@ function clearAll() {
   // Phase 4E: eta_accuracy_observations references trips, buses, and
   // route_stops — must go before all three (same recurring bug class,
   // guarded again).
+  // Phase 5B: notifications references users, students, journeys, and
+  // trips — must go before all four (same recurring bug class, guarded
+  // again).
+  db.delete(notifications).run();
   db.delete(etaAccuracyObservations).run();
   db.delete(currentLocationProjection).run();
   db.delete(telemetryObservations).run();

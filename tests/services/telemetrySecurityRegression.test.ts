@@ -137,6 +137,8 @@ const parentRoutesSource = fs.readFileSync(path.resolve(__dirname, '../../server
 describe('No generic event injection endpoint exists under /api/parent either (spec §13/§70/§120 regression, extended)', () => {
   it('the aggregate route-source check also covers parentRoutes.ts', () => {
     expect(allRoutesSource + parentRoutesSource).not.toMatch(/['"]\/api\/events['"]/);
-    expect(parentRoutesSource).not.toMatch(/\.(post|put|patch|delete)\(/);
+    // Phase 5B adds exactly one narrow write (notification mark-read) — see
+    // tests/services/parentJourneyService.test.ts for the precise guard on it.
+    expect(parentRoutesSource).not.toMatch(/\.(put|patch|delete)\(/);
   });
 });

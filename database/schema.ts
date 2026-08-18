@@ -463,3 +463,46 @@ export const etaAccuracyObservations = sqliteTable(
     pendingIdx: index('eta_accuracy_pending_idx').on(table.tripId, table.actualArrivalAt),
   })
 );
+
+// Phase 5B — Governed Notifications. A COMMUNICATION record, never a second
+// audit/event store (spec §6/§12/§20) — audit_logs remains the sole
+// operational-history source of truth this table is derived from. Exactly
+// one row per (recipientUserId, sourceEventId): sourceEventId is the id of
+// the audit_logs row the notification communicates, and the unique index
+// below is the real, database-enforced deduplication boundary (never
+// app-level dedup alone, spec §10) — reprocessing the same trusted event is
+// always a safe no-op. category/priority/title/body are resolved once, at
+// creation time, by NotificationPolicy — deterministic, never an LLM output,
+// never re-derived later (a notification's wording is a stable historical
+// record, like an SMS once sent). status is DELIVERY state (PENDING/SENT/
+// FAILED); readAt is a SEPARATE concept — a parent-owned read receipt, not
+// a delivery outcome (spec §17).
+export const notifications = sqliteTable(
+  'notifications',
+  {
+    id: id(),
+    recipientUserId: text('recipient_user_id').notNull().references(() => users.id),
+    studentId: text('student_id').notNull().references(() => students.id),
+    journeyId: text('journey_id').notNull().references(() => journeys.id),
+    tripId: text('trip_id').notNull().references(() => trips.id),
+    eventType: text('event_type').notNull(), // the real Journey event type this notification communicates — never client-supplied (spec §22)
+    sourceEventId: text('source_event_id').notNull(), // audit_logs.id — the trusted fact this notification is derived from; the dedup anchor
+    category: text('category').notNull(), // NotificationCategory
+    title: text('title').notNull(),
+    body: text('body').notNull(),
+    priority: text('priority').notNull(), // NotificationPriority — always server-derived (spec §15/§22)
+    status: text('status').notNull().default('PENDING'), // NotificationStatus — delivery state, distinct from readAt
+    failureReason: text('failure_reason'), // observability only — never returned in the parent-facing view (spec §30)
+    sentAt: integer('sent_at', { mode: 'timestamp' }),
+    readAt: integer('read_at', { mode: 'timestamp' }),
+    failedAt: integer('failed_at', { mode: 'timestamp' }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => ({
+    recipientSourceEventUnique: uniqueIndex('notifications_recipient_source_event_unique').on(table.recipientUserId, table.sourceEventId),
+    recipientCreatedIdx: index('notifications_recipient_created_idx').on(table.recipientUserId, table.createdAt),
+    recipientUnreadIdx: index('notifications_recipient_unread_idx').on(table.recipientUserId, table.readAt),
+    studentIdx: index('notifications_student_idx').on(table.studentId),
+  })
+);

@@ -50,6 +50,13 @@
       "when": 1787043332723,
       "tag": "0006_mushy_sunfire",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1787058233708,
+      "tag": "0007_cloudy_mach_iv",
+      "breakpoints": true
     }
   ]
 }

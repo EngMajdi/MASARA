@@ -373,8 +373,11 @@ describe('Source-scan governance guards (spec §20 mandatory) — Parent layer i
     expect(serviceSource).not.toMatch(/auditRepository\.create/);
   });
 
-  it('parentRoutes.ts has no POST/PUT/PATCH/DELETE handler at all — read-only', () => {
-    expect(routesSource).not.toMatch(/parentRouter\.(post|put|patch|delete)\(/);
+  it('parentRoutes.ts has exactly one mutating handler — the Phase 5B notification mark-read endpoint — and no PUT/PATCH/DELETE at all', () => {
+    expect(routesSource).not.toMatch(/parentRouter\.(put|patch|delete)\(/);
+    const postMatches = routesSource.match(/parentRouter\.post\(/g) ?? [];
+    expect(postMatches.length).toBe(1);
+    expect(routesSource).toMatch(/parentRouter\.post\(\s*['"]\/api\/parent\/notifications\/:id\/read['"]/);
   });
 
   it('parentRoutes.ts never trusts a client-supplied studentId, busId, or tripId', () => {
@@ -386,8 +389,8 @@ describe('Source-scan governance guards (spec §20 mandatory) — Parent layer i
     expect(routesSource).not.toMatch(/['"]\/api\/parent\/trips?\//);
   });
 
-  it('every parent route is guarded by requireParentUser — no unguarded handler', () => {
-    const handlerCount = (routesSource.match(/parentRouter\.get\(/g) ?? []).length;
+  it('every parent route (GET and the one POST) is guarded by requireParentUser — no unguarded handler', () => {
+    const handlerCount = (routesSource.match(/parentRouter\.(get|post)\(/g) ?? []).length;
     const guardCount = (routesSource.match(/requireParentUser\(/g) ?? []).length;
     expect(handlerCount).toBeGreaterThan(0);
     expect(guardCount).toBe(handlerCount);
