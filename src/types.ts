@@ -461,3 +461,36 @@ export interface EtaEstimateView {
     classification: DelayClassification;
   } | null;
 }
+
+// --- Phase 4E: ETA Accuracy Validation ---
+// Mirrors the public shape returned by GET /api/eta/accuracy/summary and
+// GET /api/eta/accuracy/trips/:tripId. Every metric here is measured against
+// a real Journey drop-off fact — never a fabricated or simulated "actual".
+
+export type AccuracySourceMix = 'TELEMETRY' | 'SIMULATION' | 'MIXED' | 'NONE';
+
+export interface AccuracyBand {
+  withinSeconds: number;
+  sampleCount: number;
+  percentage: number | null;
+}
+
+export interface AccuracyBreakdownGroup {
+  group: string;
+  sampleCount: number;
+  maeSeconds: number | null;
+  biasSeconds: number | null;
+}
+
+export interface EtaAccuracyView {
+  sourceMix: AccuracySourceMix;
+  totalCandidates: number;
+  measurableSamples: number;
+  coverage: number | null;
+  maeSeconds: number | null;
+  biasSeconds: number | null;
+  bands: AccuracyBand[];
+  byConfidence: AccuracyBreakdownGroup[];
+  bySource: AccuracyBreakdownGroup[];
+  byHorizon: AccuracyBreakdownGroup[];
+}

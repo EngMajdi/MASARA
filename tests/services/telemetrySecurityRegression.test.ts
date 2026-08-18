@@ -108,3 +108,25 @@ describe('Projection logic never imports Journey/AI/governance code (spec §27/�
     expect(currentLocationRepoSource).not.toMatch(/from ['"].*auditRepository['"]/);
   });
 });
+
+// Phase 4E — ETA Accuracy Validation guards.
+const etaAccuracyServiceSource = fs.readFileSync(path.resolve(__dirname, '../../server/services/EtaAccuracyService.ts'), 'utf8');
+const etaAccuracyRepoSource = fs.readFileSync(path.resolve(__dirname, '../../server/repositories/etaAccuracyRepository.ts'), 'utf8');
+
+describe('ETA accuracy validation never mutates governance/journey state (spec, mandatory)', () => {
+  it('EtaAccuracyService.ts and etaAccuracyRepository.ts import none of the mutation modules', () => {
+    const forbidden = /from ['"].*\/(JourneyService|JourneyStateMachine|ActionExecutor|PolicyEngine|MasaraOperationsAgent|PredictionEngine)['"]/;
+    expect(etaAccuracyServiceSource).not.toMatch(forbidden);
+    expect(etaAccuracyRepoSource).not.toMatch(forbidden);
+  });
+
+  it('the accuracy write path never accepts a client-supplied actualArrivalAt — the field is set only from server-derived journey data', () => {
+    expect(etaAccuracyServiceSource).not.toMatch(/req\.(body|query)/);
+    expect(etaAccuracyRepoSource).not.toMatch(/req\.(body|query)/);
+  });
+
+  it('reconciliation reads only journeyRepository — never audit_logs, never telemetry, as the ground-truth source', () => {
+    expect(etaAccuracyServiceSource).not.toMatch(/from ['"].*auditRepository['"]/);
+    expect(etaAccuracyServiceSource).not.toMatch(/from ['"].*telemetryObservationRepository['"]/);
+  });
+});

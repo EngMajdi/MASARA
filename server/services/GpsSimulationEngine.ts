@@ -3,6 +3,7 @@ import { busRepository } from '../repositories/busRepository';
 import { routeRepository } from '../repositories/routeRepository';
 import { schoolRepository } from '../repositories/schoolRepository';
 import { processObservation } from './CurrentLocationProjectionService';
+import { captureEtaAccuracySnapshot } from './EtaAccuracyService';
 import type { TelemetryObservation } from '../domain/telemetryContract';
 
 // GPS Simulation Engine (Phase 4A) — the FIRST real-time mobility producer.
@@ -323,6 +324,9 @@ export function advanceGpsSimulation(id: string): TelemetryObservation {
     // CurrentLocationProjectionService's header comment for the full
     // rationale). Best-effort, never throws, never blocks the tick.
     processObservation(observation);
+    // Phase 4E — best-effort ETA accuracy snapshot, same non-blocking
+    // contract as processObservation above (never throws, never delays a tick).
+    captureEtaAccuracySnapshot(observation.busId);
 
     if (reachedEnd) {
       session.status = 'COMPLETED';

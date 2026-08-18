@@ -4,6 +4,7 @@ import { AuthUser } from './AuthModal';
 import { SchoolJourneyOperationsPanel } from './SchoolJourneyOperationsPanel';
 import { CurrentLocationPanel } from './CurrentLocationPanel';
 import { EtaPanel } from './EtaPanel';
+import { EtaAccuracyPanel } from './EtaAccuracyPanel';
 import {
   Building2,
   Users,
@@ -12,7 +13,8 @@ import {
   Clock,
   Search,
   ShieldCheck,
-  Calendar
+  Calendar,
+  Target
 } from 'lucide-react';
 
 interface SchoolDashboardProps {
@@ -276,6 +278,17 @@ export const SchoolDashboard: React.FC<SchoolDashboardProps> = ({
             <span>تقديرات وقت الوصول (ETA Intelligence)</span>
           </h3>
           <EtaPanel userEmail={currentUser.email} scope={{ type: 'fleet' }} />
+        </div>
+      )}
+
+      {/* ETA Accuracy Validation (Phase 4E) — measures Phase 4D's live ETA against real Journey drop-off facts, never a fabricated ground truth */}
+      {currentUser?.email && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-3">
+          <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+            <Target className="w-4 h-4 text-blue-600" />
+            <span>دقة تقديرات وقت الوصول (ETA Accuracy)</span>
+          </h3>
+          <EtaAccuracyPanel userEmail={currentUser.email} />
         </div>
       )}
     </div>

@@ -2,6 +2,7 @@ import { telemetryObservationRepository } from '../repositories/telemetryObserva
 import { telemetryDeviceRepository } from '../repositories/telemetryDeviceRepository';
 import { tripRepository } from '../repositories/tripRepository';
 import { processObservation } from './CurrentLocationProjectionService';
+import { captureEtaAccuracySnapshot } from './EtaAccuracyService';
 import type { TelemetryObservation } from '../domain/telemetryContract';
 
 // THE telemetry ingestion boundary (spec Phase 4B §1/§124). This is the one
@@ -229,6 +230,9 @@ export function ingestObservation(device: AuthenticatedDevice, payload: Telemetr
     // complete; this can never fail the ingestion itself (see
     // CurrentLocationProjectionService.processObservation's own doc comment).
     processObservation(observation);
+    // Phase 4E — best-effort ETA accuracy snapshot, same non-blocking
+    // contract as processObservation above (never throws, never fails ingestion).
+    captureEtaAccuracySnapshot(observation.busId);
     return { kind: 'created', observation };
   } catch (err) {
     if (!isUniqueConstraintError(err)) throw err;
@@ -243,6 +247,7 @@ export function ingestObservation(device: AuthenticatedDevice, payload: Telemetr
     if (isSamePayload(existing, validated, correlation)) {
       const observation = toTelemetryObservation(existing);
       processObservation(observation); // idempotent — re-processing the same observation is always a safe no-op (spec §6/§33)
+      captureEtaAccuracySnapshot(observation.busId);
       return { kind: 'duplicate', observation };
     }
     throw new TelemetryConflictError('يوجد رصد GPS آخر بنفس sourceEventId ببيانات مختلفة — تم رفض الطلب دون تعديل السجل الأصلي.');

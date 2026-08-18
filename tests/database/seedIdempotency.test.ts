@@ -7,7 +7,9 @@ import { createJourney, boardStudent, startJourney, startBoarding } from '../../
 import { registerDevice } from '../../server/services/TelemetryDeviceService';
 import { ingestObservation } from '../../server/services/TelemetryIngestionService';
 import { busRepository } from '../../server/repositories/busRepository';
+import { routeRepository } from '../../server/repositories/routeRepository';
 import { getCurrentLocation } from '../../server/services/CurrentLocationProjectionService';
+import { etaAccuracyRepository } from '../../server/repositories/etaAccuracyRepository';
 
 describe('Seed script teardown order', () => {
   it('can reseed after governance tables have rows (predictions/recommendations/audit_logs) without FK errors', async () => {
@@ -45,6 +47,21 @@ describe('Seed script teardown order', () => {
       { sourceEventId: `evt-${crypto.randomUUID()}`, occurredAt: new Date().toISOString(), latitude: 23.6, longitude: 58.4 }
     );
     expect(getCurrentLocation(bus.id)).toBeTruthy(); // current_location_projection row exists
+    expect(() => seed()).not.toThrow();
+  });
+
+  it('can reseed after eta_accuracy_observations has rows too (Phase 4E — same recurring FK-order bug class, guarded again)', () => {
+    const trip = tripRepository.findAll()[0];
+    const stops = routeRepository.findStopsByRouteId(trip.routeId);
+    etaAccuracyRepository.insertSnapshotIfAbsent({
+      tripId: trip.id,
+      busId: trip.busId,
+      stopId: stops[0].id,
+      predictionTimestamp: new Date(),
+      predictedArrivalAt: new Date(Date.now() + 5 * 60_000),
+      confidence: 'MEDIUM',
+      predictionSource: 'SIMULATION',
+    });
     expect(() => seed()).not.toThrow();
   });
 });

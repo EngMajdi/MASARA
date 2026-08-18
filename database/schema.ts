@@ -416,3 +416,50 @@ export const currentLocationProjection = sqliteTable(
     tripIdx: index('current_location_projection_trip_idx').on(table.tripId),
   })
 );
+
+// Phase 4E — ETA accuracy validation. Stores a PREDICTION SNAPSHOT (never an
+// after-the-fact guess) captured at the moment a live ETA was computed for a
+// bus's next stop, so it can later be compared against the one authoritative
+// "actual arrival" fact this domain has: journeys.droppedOffAt (see
+// EtaAccuracyService's header comment for the full ground-truth reasoning).
+// predictionTimestamp/predictedArrivalAt/confidence/predictionSource are an
+// immutable copy of that moment's EtaEstimate — never recomputed or
+// overwritten later. actualArrivalAt/actualSource/signedErrorSeconds/
+// absoluteErrorSeconds start NULL and are filled exactly once, by a
+// deterministic reconciliation pass that reads journeys.droppedOffAt
+// directly (never audit_logs, never GPS proximity, never ETA-reaching-zero,
+// never simulation-completion). stopId is always a real route_stops row: a
+// next-stop prediction toward the school itself (no stopId — see
+// EtaWaypoint) has no comparable ground truth in the current schema (no
+// "trip completed" timestamp is ever written — trips.completedAt exists in
+// the schema but no code path sets it) and is therefore never snapshotted;
+// this is a documented, honest scope limitation, not an oversight.
+export const etaAccuracyObservations = sqliteTable(
+  'eta_accuracy_observations',
+  {
+    id: id(),
+    tripId: text('trip_id').notNull().references(() => trips.id),
+    busId: text('bus_id').notNull().references(() => buses.id),
+    stopId: text('stop_id').notNull().references(() => routeStops.id),
+    predictionTimestamp: integer('prediction_timestamp', { mode: 'timestamp' }).notNull(),
+    // predictionTimestamp floored to the nearest 60 seconds — the real
+    // duplicate-prevention key, enforced by the unique index below, not
+    // just application-level dedup logic.
+    predictionBucketAt: integer('prediction_bucket_at', { mode: 'timestamp' }).notNull(),
+    predictedArrivalAt: integer('predicted_arrival_at', { mode: 'timestamp' }).notNull(),
+    confidence: text('confidence').notNull(), // 'HIGH' | 'MEDIUM' | 'LOW' — copied verbatim from EtaConfidence (etaContract.ts)
+    predictionSource: text('prediction_source').notNull(), // 'TELEMETRY' | 'SIMULATION' — copied verbatim from EtaSource (etaContract.ts)
+    actualArrivalAt: integer('actual_arrival_at', { mode: 'timestamp' }), // NULL until reconciled; server-derived only, never client-supplied
+    actualSource: text('actual_source'), // 'JOURNEY_DROPOFF' once reconciled — the only actual-arrival source this phase implements
+    signedErrorSeconds: real('signed_error_seconds'), // predicted - actual, in seconds; positive = ETA predicted later than actual arrival
+    absoluteErrorSeconds: real('absolute_error_seconds'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => ({
+    tripStopBucketUnique: uniqueIndex('eta_accuracy_trip_stop_bucket_unique').on(table.tripId, table.stopId, table.predictionBucketAt),
+    tripIdx: index('eta_accuracy_trip_idx').on(table.tripId),
+    busIdx: index('eta_accuracy_bus_idx').on(table.busId),
+    pendingIdx: index('eta_accuracy_pending_idx').on(table.tripId, table.actualArrivalAt),
+  })
+);

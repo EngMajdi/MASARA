@@ -22,6 +22,7 @@ import {
   telemetryObservations,
   telemetryDevices,
   currentLocationProjection,
+  etaAccuracyObservations,
 } from '../schema';
 
 // Deterministic synthetic data only — no real children's information (spec §7/§17).
@@ -41,6 +42,10 @@ function clearAll() {
   // tests/database/seedIdempotency.test.ts, extended again for this table).
   // Phase 4C: current_location_projection references buses and trips —
   // must go before both too (same recurring bug class, guarded again).
+  // Phase 4E: eta_accuracy_observations references trips, buses, and
+  // route_stops — must go before all three (same recurring bug class,
+  // guarded again).
+  db.delete(etaAccuracyObservations).run();
   db.delete(currentLocationProjection).run();
   db.delete(telemetryObservations).run();
   db.delete(telemetryDevices).run();

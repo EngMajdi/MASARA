@@ -43,6 +43,13 @@
       "when": 1786992813121,
       "tag": "0005_curious_preak",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787043332723,
+      "tag": "0006_mushy_sunfire",
+      "breakpoints": true
     }
   ]
 }

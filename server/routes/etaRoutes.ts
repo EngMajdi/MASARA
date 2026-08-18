@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getBusEta, getTripEta, getFleetEta } from '../services/EtaService';
+import { getSummaryEtaAccuracy, getTripEtaAccuracy, type AccuracyView } from '../services/EtaAccuracyService';
 import { requireTelemetryReader, requireOperationalUser } from '../services/authz';
 
 // ETA Intelligence read APIs (Phase 4D §16) — reuses Phase 4C's exact
@@ -57,4 +58,43 @@ etaRouter.get('/api/eta/trip/:tripId', (req, res) => {
   const guard = requireTelemetryReader(req.query.userEmail, { tripId: req.params.tripId });
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json(toPublicEta(getTripEta(req.params.tripId)));
+});
+
+// -----------------------------------------------------------------------
+// Phase 4E — ETA accuracy validation. Read-only from the client's point of
+// view (GET only, no client-supplied actualArrivalAt anywhere in this file)
+// even though these two handlers trigger a bounded, on-demand reconciliation
+// pass server-side before computing metrics — see EtaAccuracyService's
+// header comment ("WRITE-TRIGGER ARCHITECTURE") for why that is the correct
+// place for it. Authorization is entirely reused, unchanged, from the
+// telemetry/ETA boundary these sit on top of.
+// -----------------------------------------------------------------------
+
+function toPublicAccuracy(view: AccuracyView) {
+  return {
+    sourceMix: view.sourceMix,
+    totalCandidates: view.metrics.totalCandidates,
+    measurableSamples: view.metrics.measurableSamples,
+    coverage: view.metrics.coverage,
+    maeSeconds: view.metrics.maeSeconds,
+    biasSeconds: view.metrics.biasSeconds,
+    bands: view.metrics.bands,
+    byConfidence: view.metrics.byConfidence,
+    bySource: view.metrics.bySource,
+    byHorizon: view.metrics.byHorizon,
+  };
+}
+
+// Admin/school only — fleet-wide accuracy summary (no bus/trip scope needed).
+etaRouter.get('/api/eta/accuracy/summary', (req, res) => {
+  const guard = requireOperationalUser(req.query.userEmail);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+  res.json(toPublicAccuracy(getSummaryEtaAccuracy()));
+});
+
+// Admin/school unscoped, driver scoped to their own trip (server-enforced, same guard as every other trip-scoped telemetry read).
+etaRouter.get('/api/eta/accuracy/trips/:tripId', (req, res) => {
+  const guard = requireTelemetryReader(req.query.userEmail, { tripId: req.params.tripId });
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+  res.json(toPublicAccuracy(getTripEtaAccuracy(req.params.tripId)));
 });
