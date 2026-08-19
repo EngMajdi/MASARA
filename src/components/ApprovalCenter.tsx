@@ -122,10 +122,11 @@ export const ApprovalCenter: React.FC<ApprovalCenterProps> = ({ isOpen, onClose,
   const [selected, setSelected] = useState<AIRecommendation | null>(null);
 
   const refresh = useCallback(async () => {
+    if (!currentUser) return;
     setLoading(true);
     setError(null);
     try {
-      const all = await listRecommendations();
+      const all = await listRecommendations(currentUser.email);
       setRecommendations(all);
       if (selected) {
         const updated = all.find((r) => r.id === selected.id);
@@ -307,18 +308,20 @@ function RecommendationDetail({
   const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!currentUser) return;
+    const userEmail = currentUser.email;
     let cancelled = false;
     (async () => {
       try {
-        const [t, a] = await Promise.all([getTrip(rec.tripId), getRecommendationAudit(rec.id)]);
+        const [t, a] = await Promise.all([getTrip(rec.tripId, userEmail), getRecommendationAudit(rec.id, userEmail)]);
         if (cancelled) return;
         setTrip(t);
         setAudit(a);
         const [b, r, p, v] = await Promise.all([
-          getGovernedBus(t.busId).catch(() => null),
-          getGovernedRoute(t.routeId).catch(() => null),
-          rec.predictionId ? getPrediction(rec.predictionId).catch(() => null) : Promise.resolve(null),
-          getRecommendationVerification(rec.id).catch(() => null),
+          getGovernedBus(t.busId, userEmail).catch(() => null),
+          getGovernedRoute(t.routeId, userEmail).catch(() => null),
+          rec.predictionId ? getPrediction(rec.predictionId, userEmail).catch(() => null) : Promise.resolve(null),
+          getRecommendationVerification(rec.id, userEmail).catch(() => null),
         ]);
         if (cancelled) return;
         setBus(b);
@@ -326,7 +329,7 @@ function RecommendationDetail({
         setPrediction(p);
         setVerification(v);
         if (rec.action === 'CHANGE_ROUTE' && rec.targetId) {
-          getGovernedRoute(rec.targetId)
+          getGovernedRoute(rec.targetId, userEmail)
             .then((tr) => !cancelled && setTargetRoute(tr))
             .catch(() => {});
         }
@@ -337,7 +340,8 @@ function RecommendationDetail({
     return () => {
       cancelled = true;
     };
-  }, [rec.id, rec.tripId, rec.predictionId, rec.action, rec.targetId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rec.id, rec.tripId, rec.predictionId, rec.action, rec.targetId, currentUser?.email]);
 
   const isPending = rec.status === 'pending';
   const isExpired = rec.status === 'pending' && rec.expiresAt && new Date(rec.expiresAt).getTime() < Date.now();

@@ -22,6 +22,9 @@ import { contactRouter } from './server/routes/contactRoutes';
 import { hashPassword, verifyPassword } from './server/services/legacyAuthCredentials';
 import { db } from './database/client';
 import { schools as schoolsTable } from './database/schema';
+import { createSession, invalidateSession } from './server/services/legacySessionService';
+import { checkLoginAllowed, recordLoginFailure, recordLoginSuccess } from './server/services/loginRateLimiter';
+import { requireLegacySession, requireLegacyRole, LEGACY_DATA_MANAGEMENT_ROLES, LEGACY_OPERATIONAL_ROLES, LEGACY_ANY_ROLE } from './server/services/legacyAuthz';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -152,8 +155,12 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Unified All-Data Endpoint for Live Realtime Synchronization Across Clients
+// Unified All-Data Endpoint for Live Realtime Synchronization Across Clients.
+// Phase 7A: any authenticated session (role-agnostic) — this bundles
+// exactly the same data the individual GET routes below already expose.
 app.get('/api/all-data', (req, res) => {
+  const guard = requireLegacySession(req.headers.authorization);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json({
     schools,
     buses,
@@ -165,14 +172,36 @@ app.get('/api/all-data', (req, res) => {
   });
 });
 
-// Authentication Login Endpoint
+// Authentication Login Endpoint. Phase 7A: rate-limited (checked before
+// any password comparison, so a lockout can never distinguish "unknown
+// email" from "wrong password" either) and now issues a real, expiring
+// session token — the one authenticated session boundary the newly
+// protected legacy surface below requires (spec Step 1/4/5).
 app.post('/api/auth/login', (req, res) => {
   const { email, password, role } = req.body;
-  const user = users.find(u => u.email.toLowerCase() === email?.toLowerCase().trim());
 
-  if (!user || typeof password !== 'string' || !verifyPassword(password, user.passwordHash)) {
+  if (typeof email !== 'string' || !email) {
     return res.status(401).json({ success: false, error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' });
   }
+
+  const rateLimit = checkLoginAllowed(email);
+  if (rateLimit.allowed === false) {
+    return res.status(429).json({
+      success: false,
+      error: 'عدد كبير جداً من محاولات الدخول الفاشلة. الرجاء المحاولة لاحقاً.',
+      retryAfterMs: rateLimit.retryAfterMs,
+    });
+  }
+
+  const user = users.find(u => u.email.toLowerCase() === email.toLowerCase().trim());
+
+  if (!user || typeof password !== 'string' || !verifyPassword(password, user.passwordHash)) {
+    recordLoginFailure(email);
+    return res.status(401).json({ success: false, error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' });
+  }
+
+  recordLoginSuccess(email);
+  const session = createSession({ id: user.id, email: user.email, role: role || user.role });
 
   const returnUser = {
     id: user.id,
@@ -182,7 +211,16 @@ app.post('/api/auth/login', (req, res) => {
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200'
   };
 
-  res.json({ success: true, user: returnUser });
+  res.json({ success: true, user: returnUser, sessionToken: session.token, sessionExpiresAt: new Date(session.expiresAt).toISOString() });
+});
+
+// Phase 7A — invalidates the caller's own session token. Best-effort:
+// missing/already-invalid token is still a success (logout is idempotent,
+// never leaks whether a token was real).
+app.post('/api/auth/logout', (req, res) => {
+  const match = typeof req.headers.authorization === 'string' ? req.headers.authorization.match(/^Bearer\s+(.+)$/) : null;
+  if (match) invalidateSession(match[1]);
+  res.json({ success: true });
 });
 
 // Authentication Register Endpoint
@@ -206,6 +244,7 @@ app.post('/api/auth/register', (req, res) => {
   };
 
   users.push(newUser);
+  const session = createSession({ id: newUser.id, email: newUser.email, role: newUser.role });
 
   res.json({
     success: true,
@@ -215,32 +254,50 @@ app.post('/api/auth/register', (req, res) => {
       email: newUser.email,
       role: newUser.role,
       avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200'
-    }
+    },
+    sessionToken: session.token,
+    sessionExpiresAt: new Date(session.expiresAt).toISOString(),
   });
 });
 
+// Phase 7A — every legacy read below requires any authenticated session
+// (role-agnostic): these are basic display data every logged-in role
+// already sees somewhere in the UI (map, portals, data management modal).
 app.get('/api/schools', (req, res) => {
+  const guard = requireLegacySession(req.headers.authorization);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json(schools);
 });
 
 app.get('/api/buses', (req, res) => {
+  const guard = requireLegacySession(req.headers.authorization);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json(buses);
 });
 
 app.get('/api/students', (req, res) => {
+  const guard = requireLegacySession(req.headers.authorization);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json(students);
 });
 
 app.get('/api/routes', (req, res) => {
+  const guard = requireLegacySession(req.headers.authorization);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json(routes);
 });
 
 app.get('/api/notifications', (req, res) => {
+  const guard = requireLegacySession(req.headers.authorization);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json(notifications);
 });
 
-// Add new notification
+// Add new notification — a parent-facing demo/test alert (ParentPortal's
+// "test the pre-arrival alert" feature), any authenticated role.
 app.post('/api/notifications', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_ANY_ROLE);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const { title, message, type = 'info', targetRole = 'parent' } = req.body;
   const nowStr = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
   const newNotif = {
@@ -258,6 +315,8 @@ app.post('/api/notifications', (req, res) => {
 
 // Schedule/Trigger 5-minute pre-arrival notification for parents
 app.post('/api/notifications/schedule-prearrival', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_ANY_ROLE);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const { studentId, busId, minutesBefore = 5 } = req.body;
   const student = students.find((s) => s.id === studentId);
   const bus = buses.find((b) => b.id === busId || b.id === student?.busId);
@@ -290,56 +349,76 @@ app.post('/api/notifications/schedule-prearrival', (req, res) => {
 });
 
 app.get('/api/workflow-steps', (req, res) => {
+  const guard = requireLegacySession(req.headers.authorization);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json(workflowSteps);
 });
 
-// Create new student
+// Create new student — data management (spec Step 2: admin/school only, matching OPERATIONAL_ROLES).
 app.post('/api/students', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_DATA_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const newStudent = { id: `std-${Date.now()}`, ...req.body };
   students.unshift(newStudent);
   res.json({ success: true, student: newStudent, students });
 });
 
-// Delete student
+// Delete student — data management, admin/school only.
 app.delete('/api/students/:id', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_DATA_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const { id } = req.params;
   const idx = students.findIndex((s) => s.id === id);
   if (idx !== -1) students.splice(idx, 1);
   res.json({ success: true, students });
 });
 
-// Create new bus
+// Create new bus — data management, admin/school only.
 app.post('/api/buses', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_DATA_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const newBus = { id: `bus-${Date.now()}`, ...req.body };
   buses.unshift(newBus);
   res.json({ success: true, bus: newBus, buses });
 });
 
-// Delete bus
+// Delete bus — data management, admin/school only.
 app.delete('/api/buses/:id', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_DATA_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const { id } = req.params;
   const idx = buses.findIndex((b) => b.id === id);
   if (idx !== -1) buses.splice(idx, 1);
   res.json({ success: true, buses });
 });
 
-// Create new route
+// Create new route — data management, admin/school only.
 app.post('/api/routes', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_DATA_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const newRoute = { id: `route-${Date.now()}`, ...req.body };
   routes.unshift(newRoute);
   res.json({ success: true, route: newRoute, routes });
 });
 
-// Delete route
+// Delete route — data management, admin/school only.
 app.delete('/api/routes/:id', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_DATA_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const { id } = req.params;
   const idx = routes.findIndex((r) => r.id === id);
   if (idx !== -1) routes.splice(idx, 1);
   res.json({ success: true, routes });
 });
 
-// Start Route Endpoint
+// Start Route Endpoint — driver-triggered operational action (also usable
+// by admin/school). The legacy bus record has no driver identity field
+// (only a free-text driverName), so per-bus driver ownership is NOT
+// enforced here — a real, pre-existing data-model limitation (documented
+// in the final report), not fabricated around with fragile name matching.
 app.post('/api/buses/:id/start-route', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_OPERATIONAL_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const { id } = req.params;
   const targetBus = buses.find((b) => b.id === id);
   if (targetBus) {
@@ -372,8 +451,16 @@ app.post('/api/buses/:id/start-route', (req, res) => {
   });
 });
 
-// Update Student Boarding / Absence Status
+// Update Student Boarding / Absence Status — reachable from both
+// DriverPortal (boarding) and ParentPortal (marking a child absent), so
+// any authenticated role is allowed; the legacy student record has no
+// parent-ownership FK (only free-text parentPhone/parentName, unlike the
+// governed students table's Phase 5A demo mapping), so per-student
+// ownership is NOT enforced here — same documented limitation as
+// start-route above.
 app.post('/api/students/:id/status', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_ANY_ROLE);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const { id } = req.params;
   const { status } = req.body;
 
@@ -415,8 +502,10 @@ app.post('/api/students/:id/status', (req, res) => {
   res.json({ success: true, student, notifications });
 });
 
-// 1. AI Route Optimizer Endpoint (Gemini Powered)
+// 1. AI Route Optimizer Endpoint (Gemini Powered) — AdminAIAgentPortal only, admin/school.
 app.post('/api/ai/optimize-routes', async (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_DATA_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     const ai = getGeminiClient();
     const { schoolId, trafficCondition } = req.body;
@@ -510,7 +599,10 @@ ${schoolStudents
 });
 
 // 2. AI Traffic Reroute Simulator Endpoint
+// Reachable from both DriverPortal and AdminAIAgentPortal — admin/school/driver.
 app.post('/api/ai/detect-reroute', async (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_OPERATIONAL_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     const ai = getGeminiClient();
     const { busId, incidentDescription } = req.body;
@@ -585,8 +677,10 @@ app.post('/api/ai/detect-reroute', async (req, res) => {
   }
 });
 
-// 2.5. AI Traffic-Based Bus ETA Prediction Endpoint (MASARA AI Predictive Engine)
+// 2.5. AI Traffic-Based Bus ETA Prediction Endpoint (MASARA AI Predictive Engine) — AdminAIAgentPortal only, admin/school.
 app.post('/api/ai/predict-traffic-eta', async (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_DATA_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     const ai = getGeminiClient();
     const { trafficLevel, selectedBusId } = req.body;
@@ -854,8 +948,11 @@ function generateLocalAdvisorAnswer(
 - "ما هو رقم هاتف سائق الحافلة؟"`;
 }
 
-// 3. AI Smart Advisor Endpoint (Q&A for Masara)
+// 3. AI Smart Advisor Endpoint (Q&A for Masara) — globally available in the
+// UI header to every logged-in role; read-only Q&A, so any authenticated session.
 app.post('/api/ai/ask-advisor', async (req, res) => {
+  const guard = requireLegacySession(req.headers.authorization);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     const ai = getGeminiClient();
     const { query, userRole, currentBuses, currentStudents, currentSchools, currentRoutes } = req.body;
@@ -919,8 +1016,10 @@ ${liveContext}
   }
 });
 
-// 4. Specialized Multi-Agent Executor Endpoint
+// 4. Specialized Multi-Agent Executor Endpoint — AdminAIAgentPortal only, admin/school.
 app.post('/api/ai/run-agent', async (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_DATA_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     const ai = getGeminiClient();
     const { agentType, customInput } = req.body;

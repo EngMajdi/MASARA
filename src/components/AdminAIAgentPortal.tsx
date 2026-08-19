@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Route, AIAgentWorkflowStep } from '../types';
+import { AuthUser } from './AuthModal';
+import { legacyAuthHeaders } from '../services/legacyAuthHeaders';
 import {
   Sparkles,
   Zap,
@@ -57,6 +59,7 @@ interface AdminAIAgentPortalProps {
   onOptimizeRoutes: (trafficCondition: string) => Promise<any>;
   onTriggerReroute: (busId: string, incident: string) => Promise<any>;
   onAskAdvisor: (query: string) => Promise<string>;
+  currentUser: AuthUser | null;
 }
 
 export const AdminAIAgentPortal: React.FC<AdminAIAgentPortalProps> = ({
@@ -64,7 +67,8 @@ export const AdminAIAgentPortal: React.FC<AdminAIAgentPortalProps> = ({
   routes,
   onOptimizeRoutes,
   onTriggerReroute,
-  onAskAdvisor
+  onAskAdvisor,
+  currentUser
 }) => {
   const [trafficInput, setTrafficInput] = useState('ازدحام مروري مرتفع عند مخرج حي القرم وشارع السلطان قابوس');
   const [isOptimizing, setIsOptimizing] = useState(false);
@@ -133,7 +137,7 @@ export const AdminAIAgentPortal: React.FC<AdminAIAgentPortalProps> = ({
     try {
       const res = await fetch('/api/ai/predict-traffic-eta', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...legacyAuthHeaders(currentUser?.sessionToken) },
         body: JSON.stringify({ trafficLevel: level })
       });
       const data = await res.json();
@@ -155,7 +159,7 @@ export const AdminAIAgentPortal: React.FC<AdminAIAgentPortalProps> = ({
     try {
       const res = await fetch('/api/ai/run-agent', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...legacyAuthHeaders(currentUser?.sessionToken) },
         body: JSON.stringify({ agentType })
       });
       const data = await res.json();

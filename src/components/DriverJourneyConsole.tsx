@@ -122,7 +122,7 @@ export const DriverJourneyConsole: React.FC<DriverJourneyConsoleProps> = ({ user
 
   useEffect(() => {
     if (!selectedTrip) return;
-    getRouteStops(selectedTrip.trip.routeId)
+    getRouteStops(selectedTrip.trip.routeId, userEmail)
       .then((s) => {
         setStops(s);
         setSelectedStopId((prev) => (prev && s.some((st) => st.id === prev) ? prev : s[0]?.id ?? ''));

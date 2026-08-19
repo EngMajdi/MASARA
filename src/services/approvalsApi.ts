@@ -18,39 +18,43 @@ async function asJson<T>(res: Response, fallbackError: string): Promise<T> {
   return data as T;
 }
 
-export function listRecommendations(status?: string): Promise<AIRecommendation[]> {
-  const url = status ? `${BASE}?status=${encodeURIComponent(status)}` : BASE;
+// Phase 7A — these governance/reference reads now require an authorized
+// session (admin/school for governance data, admin/school/driver for
+// plain trip/bus/route reference data — see agentRoutes.ts), so every
+// call site below must pass the caller's own email.
+export function listRecommendations(userEmail: string, status?: string): Promise<AIRecommendation[]> {
+  const url = `${BASE}?userEmail=${encodeURIComponent(userEmail)}${status ? `&status=${encodeURIComponent(status)}` : ''}`;
   return fetch(url).then((res) => asJson<AIRecommendation[]>(res, 'تعذر تحميل قائمة التوصيات.'));
 }
 
-export function getRecommendation(id: string): Promise<AIRecommendation> {
-  return fetch(`${BASE}/${id}`).then((res) => asJson<AIRecommendation>(res, 'تعذر تحميل تفاصيل التوصية.'));
+export function getRecommendation(id: string, userEmail: string): Promise<AIRecommendation> {
+  return fetch(`${BASE}/${id}?userEmail=${encodeURIComponent(userEmail)}`).then((res) => asJson<AIRecommendation>(res, 'تعذر تحميل تفاصيل التوصية.'));
 }
 
-export function getRecommendationAudit(id: string): Promise<AuditEvent[]> {
-  return fetch(`${BASE}/${id}/audit`).then((res) => asJson<AuditEvent[]>(res, 'تعذر تحميل سجل التدقيق.'));
+export function getRecommendationAudit(id: string, userEmail: string): Promise<AuditEvent[]> {
+  return fetch(`${BASE}/${id}/audit?userEmail=${encodeURIComponent(userEmail)}`).then((res) => asJson<AuditEvent[]>(res, 'تعذر تحميل سجل التدقيق.'));
 }
 
-export function getRecommendationVerification(id: string): Promise<ActionVerification | null> {
-  return fetch(`${BASE}/${id}/verification`).then((res) =>
+export function getRecommendationVerification(id: string, userEmail: string): Promise<ActionVerification | null> {
+  return fetch(`${BASE}/${id}/verification?userEmail=${encodeURIComponent(userEmail)}`).then((res) =>
     asJson<ActionVerification | null>(res, 'تعذر تحميل نتيجة التحقق.')
   );
 }
 
-export function getTrip(id: string): Promise<GovernedTrip> {
-  return fetch(`/api/trips/${id}`).then((res) => asJson<GovernedTrip>(res, 'تعذر تحميل بيانات الرحلة.'));
+export function getTrip(id: string, userEmail: string): Promise<GovernedTrip> {
+  return fetch(`/api/trips/${id}?userEmail=${encodeURIComponent(userEmail)}`).then((res) => asJson<GovernedTrip>(res, 'تعذر تحميل بيانات الرحلة.'));
 }
 
-export function getGovernedBus(id: string): Promise<GovernedBus> {
-  return fetch(`/api/buses/${id}`).then((res) => asJson<GovernedBus>(res, 'تعذر تحميل بيانات الحافلة.'));
+export function getGovernedBus(id: string, userEmail: string): Promise<GovernedBus> {
+  return fetch(`/api/buses/${id}?userEmail=${encodeURIComponent(userEmail)}`).then((res) => asJson<GovernedBus>(res, 'تعذر تحميل بيانات الحافلة.'));
 }
 
-export function getGovernedRoute(id: string): Promise<GovernedRoute> {
-  return fetch(`/api/routes/${id}`).then((res) => asJson<GovernedRoute>(res, 'تعذر تحميل بيانات المسار.'));
+export function getGovernedRoute(id: string, userEmail: string): Promise<GovernedRoute> {
+  return fetch(`/api/routes/${id}?userEmail=${encodeURIComponent(userEmail)}`).then((res) => asJson<GovernedRoute>(res, 'تعذر تحميل بيانات المسار.'));
 }
 
-export function getPrediction(id: string): Promise<GovernedPrediction> {
-  return fetch(`/api/predictions/${id}`).then((res) => asJson<GovernedPrediction>(res, 'تعذر تحميل بيانات التنبؤ.'));
+export function getPrediction(id: string, userEmail: string): Promise<GovernedPrediction> {
+  return fetch(`/api/predictions/${id}?userEmail=${encodeURIComponent(userEmail)}`).then((res) => asJson<GovernedPrediction>(res, 'تعذر تحميل بيانات التنبؤ.'));
 }
 
 // The backend resolves the governance-layer user by email — see the comment

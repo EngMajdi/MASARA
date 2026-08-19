@@ -70,6 +70,6 @@ export function resetSimulations(userEmail: string) {
   }).then((res) => asJson<{ success: true }>(res, 'تعذر إعادة ضبط المحاكاة.'));
 }
 
-export function listGovernedTrips(): Promise<GovernedTrip[]> {
-  return fetch('/api/trips').then((res) => asJson<GovernedTrip[]>(res, 'تعذر تحميل قائمة الرحلات.'));
+export function listGovernedTrips(userEmail: string): Promise<GovernedTrip[]> {
+  return fetch(`/api/trips?userEmail=${encodeURIComponent(userEmail)}`).then((res) => asJson<GovernedTrip[]>(res, 'تعذر تحميل قائمة الرحلات.'));
 }

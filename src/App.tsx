@@ -21,6 +21,7 @@ import { ApprovalCenter } from './components/ApprovalCenter';
 import { SimulationCenter } from './components/SimulationCenter';
 import { AIOperationsFeed } from './components/AIOperationsFeed';
 import { AuthModal, AuthUser } from './components/AuthModal';
+import { legacyAuthHeaders } from './services/legacyAuthHeaders';
 import { Map, ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function App() {
@@ -74,6 +75,9 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    if (currentUser?.sessionToken) {
+      fetch('/api/auth/logout', { method: 'POST', headers: legacyAuthHeaders(currentUser.sessionToken) }).catch(() => {});
+    }
     setCurrentUser(null);
     try {
       localStorage.removeItem('masara_auth_user');
@@ -92,14 +96,14 @@ export default function App() {
     setStudents((prev) => [created, ...prev]);
     fetch('/api/students', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...legacyAuthHeaders(currentUser?.sessionToken) },
       body: JSON.stringify(created)
     }).catch(console.error);
   };
 
   const handleDeleteStudent = (id: string) => {
     setStudents((prev) => prev.filter((s) => s.id !== id));
-    fetch(`/api/students/${id}`, { method: 'DELETE' }).catch(console.error);
+    fetch(`/api/students/${id}`, { method: 'DELETE', headers: legacyAuthHeaders(currentUser?.sessionToken) }).catch(console.error);
   };
 
   const handleAddBus = (newBusData: Omit<Bus, 'id'>) => {
@@ -110,14 +114,14 @@ export default function App() {
     setBuses((prev) => [created, ...prev]);
     fetch('/api/buses', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...legacyAuthHeaders(currentUser?.sessionToken) },
       body: JSON.stringify(created)
     }).catch(console.error);
   };
 
   const handleDeleteBus = (id: string) => {
     setBuses((prev) => prev.filter((b) => b.id !== id));
-    fetch(`/api/buses/${id}`, { method: 'DELETE' }).catch(console.error);
+    fetch(`/api/buses/${id}`, { method: 'DELETE', headers: legacyAuthHeaders(currentUser?.sessionToken) }).catch(console.error);
   };
 
   const handleAddRoute = (newRouteData: Omit<Route, 'id'>) => {
@@ -128,21 +132,22 @@ export default function App() {
     setRoutes((prev) => [created, ...prev]);
     fetch('/api/routes', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...legacyAuthHeaders(currentUser?.sessionToken) },
       body: JSON.stringify(created)
     }).catch(console.error);
   };
 
   const handleDeleteRoute = (id: string) => {
     setRoutes((prev) => prev.filter((r) => r.id !== id));
-    fetch(`/api/routes/${id}`, { method: 'DELETE' }).catch(console.error);
+    fetch(`/api/routes/${id}`, { method: 'DELETE', headers: legacyAuthHeaders(currentUser?.sessionToken) }).catch(console.error);
   };
 
   // Realtime Data Synchronization Function (السايركونانس)
   const syncAllData = async () => {
+    if (!currentUser?.sessionToken) return;
     setIsSyncing(true);
     try {
-      const res = await fetch('/api/all-data');
+      const res = await fetch('/api/all-data', { headers: legacyAuthHeaders(currentUser.sessionToken) });
       if (res.ok) {
         const data = await res.json();
         if (data.schools) setSchools(data.schools);
@@ -162,21 +167,25 @@ export default function App() {
     }
   };
 
-  // Setup periodic sync every 2.5 seconds
+  // Setup periodic sync every 2.5 seconds. Phase 7A: re-created whenever the
+  // session token changes (login/logout) — syncAllData reads currentUser
+  // via closure, so the interval must restart on that value's identity
+  // changing, or a login that happens after mount would never be picked up.
   useEffect(() => {
     syncAllData();
     const interval = setInterval(() => {
       syncAllData();
     }, 2500);
     return () => clearInterval(interval);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.sessionToken]);
 
   // Handler: Student Boarding / Absence Status
   const handleUpdateStudentStatus = async (studentId: string, status: 'boarded' | 'absent') => {
     try {
       const res = await fetch(`/api/students/${studentId}/status`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...legacyAuthHeaders(currentUser?.sessionToken) },
         body: JSON.stringify({ status })
       });
       const data = await res.json();
@@ -192,7 +201,7 @@ export default function App() {
   const handleOptimizeRoutes = async (trafficCondition: string) => {
     const res = await fetch('/api/ai/optimize-routes', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...legacyAuthHeaders(currentUser?.sessionToken) },
       body: JSON.stringify({ schoolId: 'sch-1', trafficCondition })
     });
     const data = await res.json();
@@ -204,7 +213,7 @@ export default function App() {
   const handleTriggerReroute = async (busId: string, incident: string) => {
     const res = await fetch('/api/ai/detect-reroute', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...legacyAuthHeaders(currentUser?.sessionToken) },
       body: JSON.stringify({ busId, incidentDescription: incident })
     });
     const data = await res.json();
@@ -217,7 +226,7 @@ export default function App() {
     try {
       const res = await fetch(`/api/buses/${busId}/start-route`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json', ...legacyAuthHeaders(currentUser?.sessionToken) }
       });
       if (res.ok) {
         syncAllData();
@@ -231,7 +240,7 @@ export default function App() {
   const handleAskAdvisor = async (query: string) => {
     const res = await fetch('/api/ai/ask-advisor', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...legacyAuthHeaders(currentUser?.sessionToken) },
       body: JSON.stringify({
         query,
         userRole: activeRole,
@@ -320,6 +329,7 @@ export default function App() {
               onOptimizeRoutes={handleOptimizeRoutes}
               onTriggerReroute={handleTriggerReroute}
               onAskAdvisor={handleAskAdvisor}
+              currentUser={currentUser}
             />
           )}
         </div>

@@ -53,14 +53,14 @@ export const AIOperationsFeed: React.FC<AIOperationsFeedProps> = ({ isOpen, onCl
   }, [isOpen, refresh]);
 
   useEffect(() => {
-    if (!selected?.recommendationId) {
+    if (!selected?.recommendationId || !currentUser) {
       setSelectedRec(null);
       return;
     }
-    getRecommendation(selected.recommendationId)
+    getRecommendation(selected.recommendationId, currentUser.email)
       .then(setSelectedRec)
       .catch(() => setSelectedRec(null));
-  }, [selected]);
+  }, [selected, currentUser]);
 
   if (!isOpen) return null;
 

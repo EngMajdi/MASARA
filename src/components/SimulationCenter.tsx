@@ -73,10 +73,10 @@ export const SimulationCenter: React.FC<SimulationCenterProps> = ({ isOpen, onCl
       const [s, ev] = await Promise.all([getSimulation(sessionId), getSimulationEvents(sessionId)]);
       setSession(s);
       setEvents(ev);
-      if (s.recommendationId) {
+      if (s.recommendationId && currentUser) {
         const [rec, ver] = await Promise.all([
-          getRecommendation(s.recommendationId).catch(() => null),
-          getRecommendationVerification(s.recommendationId).catch(() => null),
+          getRecommendation(s.recommendationId, currentUser.email).catch(() => null),
+          getRecommendationVerification(s.recommendationId, currentUser.email).catch(() => null),
         ]);
         setRecommendation(rec);
         setVerification(ver);
@@ -84,11 +84,12 @@ export const SimulationCenter: React.FC<SimulationCenterProps> = ({ isOpen, onCl
     } catch (err) {
       setError((err as Error).message);
     }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.email]);
 
   useEffect(() => {
-    if (!isOpen) return;
-    listGovernedTrips().then(setTrips).catch(() => {});
+    if (!isOpen || !currentUser) return;
+    listGovernedTrips(currentUser.email).then(setTrips).catch(() => {});
     listSimulations().then((all) => {
       const active = all.find((s) => s.status === 'RUNNING' || s.status === 'PAUSED');
       if (active) {

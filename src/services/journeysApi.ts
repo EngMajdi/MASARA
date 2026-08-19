@@ -38,8 +38,10 @@ export function getDriverTrips(userEmail: string): Promise<TripWithJourneys[]> {
   );
 }
 
-export function getRouteStops(routeId: string): Promise<GovernedRouteStop[]> {
-  return fetch(`/api/routes/${routeId}/stops`).then((res) => asJson<GovernedRouteStop[]>(res, 'تعذر تحميل محطات المسار.'));
+export function getRouteStops(routeId: string, userEmail: string): Promise<GovernedRouteStop[]> {
+  return fetch(`/api/routes/${routeId}/stops?userEmail=${encodeURIComponent(userEmail)}`).then((res) =>
+    asJson<GovernedRouteStop[]>(res, 'تعذر تحميل محطات المسار.')
+  );
 }
 
 type JourneyActionResponse = Promise<{ success: true; journey: Journey }>;

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Student, Bus, SystemNotification } from '../types';
 import { AuthUser } from './AuthModal';
 import { ParentJourneyPanel } from './ParentJourneyPanel';
+import { legacyAuthHeaders } from '../services/legacyAuthHeaders';
 import {
   Phone,
   MessageCircle,
@@ -107,7 +108,7 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({
       // Dispatch to server notification system
       fetch('/api/notifications/schedule-prearrival', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...legacyAuthHeaders(currentUser?.sessionToken) },
         body: JSON.stringify({
           studentId: activeStudent.id,
           busId: assignedBus.id,
@@ -156,7 +157,7 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({
     try {
       const res = await fetch('/api/notifications/schedule-prearrival', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...legacyAuthHeaders(currentUser?.sessionToken) },
         body: JSON.stringify({
           studentId: activeStudent.id,
           busId: assignedBus.id,
@@ -194,7 +195,7 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({
     // Also push to server notifications log
     fetch('/api/notifications', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...legacyAuthHeaders(currentUser?.sessionToken) },
       body: JSON.stringify({
         title: `🔔 [اختبار] تنبيه وصول الحافلة (${assignedBus.busNumber})`,
         message: `اختبار التنبيه التلقائي المسبق قبل ${leadTimeMinutes} دقائق للطالب (${activeStudent.name}).`,

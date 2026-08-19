@@ -29,6 +29,8 @@ export interface AuthUser {
   email: string;
   role: UserRole;
   avatar?: string;
+  /** Phase 7A — the legacy session token issued at login, required by the newly-protected legacy surface (server.ts's /api/students, /api/buses, /api/routes, /api/ai/*, and the governance reads in agentRoutes.ts). Absent only in the offline-fallback path below, where no real server session was ever issued. */
+  sessionToken?: string;
 }
 
 interface AuthModalProps {
@@ -156,7 +158,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        onLoginSuccess(data.user);
+        onLoginSuccess({ ...data.user, sessionToken: data.sessionToken });
       } else {
         setError(data.error || 'فشل تسجيل الدخول. يرجى التحقق من البريد وكلمة المرور.');
       }
@@ -199,7 +201,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         .then((r) => r.json())
         .then((data) => {
           if (data.success) {
-            onLoginSuccess(data.user);
+            onLoginSuccess({ ...data.user, sessionToken: data.sessionToken });
           } else {
             setError(data.error || 'فشل إنشاء الحساب الجديد');
           }
