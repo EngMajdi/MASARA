@@ -69,7 +69,7 @@ describe('Seed script teardown order', () => {
     expect(() => seed()).not.toThrow();
   });
 
-  it('can reseed after notifications has rows too (Phase 5B — same recurring FK-order bug class, guarded again)', () => {
+  it('can reseed after notifications has rows too (Phase 5B — same recurring FK-order bug class, guarded again)', async () => {
     const parentUser = userRepository.findByEmail('parent@masara.om')!;
     // The demo parent's SECOND child (on bus 102/trip[1]) — the earlier
     // "journeys table" test above already created a journey for the first
@@ -83,8 +83,8 @@ describe('Seed script teardown order', () => {
     journey = startJourney(journey.id, { actorId: null, actorType: 'system' });
     startBoarding(journey.id, { actorId: null, actorType: 'system' });
     boardStudent(journey.id, { actorId: null, actorType: 'system' }); // STUDENT_BOARDED audit row -> eligible for notification
-    processPendingNotificationsForParent(parentUser); // notifications row created through the real service, not a manual insert (spec §31)
-    expect(getUnreadCountForParent(parentUser)).toBeGreaterThan(0);
+    await processPendingNotificationsForParent(parentUser); // notifications row created through the real service, not a manual insert (spec §31)
+    expect(await getUnreadCountForParent(parentUser)).toBeGreaterThan(0);
     expect(() => seed()).not.toThrow();
   });
 

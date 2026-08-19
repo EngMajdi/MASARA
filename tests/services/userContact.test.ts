@@ -322,7 +322,7 @@ describe('Security — client cannot widen access or set server-only fields (spe
 // ---------------------------------------------------------------------------
 
 describe('Notification regression — Phase 5B/5C/5D behavior is unchanged by the contact model (spec mandatory)', () => {
-  it('a real Journey boarding event still produces exactly one in-app notification', () => {
+  it('a real Journey boarding event still produces exactly one in-app notification', async () => {
     const parentUser = userRepository.findByEmail('parent@masara.om')!;
     const student = resolveAuthorizedStudents(parentUser)[0];
     const trip = tripRepository.findAll().find((t) => t.busId === student.busId)!;
@@ -331,8 +331,8 @@ describe('Notification regression — Phase 5B/5C/5D behavior is unchanged by th
     startBoarding(journey.id, SYSTEM);
     boardStudent(journey.id, SYSTEM);
 
-    processPendingNotificationsForParent(parentUser);
-    const notifs = getNotificationsForParent(parentUser).filter((n) => n.studentId === student.id);
+    await processPendingNotificationsForParent(parentUser);
+    const notifs = (await getNotificationsForParent(parentUser)).filter((n) => n.studentId === student.id);
     expect(notifs.length).toBeGreaterThanOrEqual(1);
     expect(notifs[0].status).toBe('SENT');
   });

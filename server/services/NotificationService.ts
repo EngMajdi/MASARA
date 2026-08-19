@@ -55,7 +55,7 @@ export class NotificationAccessDeniedError extends Error {}
  * scan; a bounded/cursor-based version is a documented future
  * optimization, not a demonstrated need today (see final report).
  */
-export function processPendingNotificationsForParent(parentUser: GovernedUser): void {
+export async function processPendingNotificationsForParent(parentUser: GovernedUser): Promise<void> {
   const students = resolveAuthorizedStudents(parentUser);
   for (const student of students) {
     const events = auditRepository.findByStudentId(student.id);
@@ -111,7 +111,7 @@ export function processPendingNotificationsForParent(parentUser: GovernedUser): 
         // verified here — only an existing verified+enabled row (if any)
         // is looked up.
         const emailResolution = resolveEmailAddress(parentUser);
-        deliverToAllChannels({
+        await deliverToAllChannels({
           notificationId: createdId,
           title: content.title,
           body: content.body,
@@ -145,13 +145,13 @@ function toView(row: NonNullable<ReturnType<typeof notificationRepository.findBy
 }
 
 /** Reconciles (bounded to this parent's own authorized students, on-demand), then returns a bounded, newest-first page. */
-export function getNotificationsForParent(parentUser: GovernedUser, limit?: number): NotificationView[] {
-  processPendingNotificationsForParent(parentUser);
+export async function getNotificationsForParent(parentUser: GovernedUser, limit?: number): Promise<NotificationView[]> {
+  await processPendingNotificationsForParent(parentUser);
   return notificationRepository.findByRecipient(parentUser.id, limit).map(toView);
 }
 
-export function getUnreadCountForParent(parentUser: GovernedUser): number {
-  processPendingNotificationsForParent(parentUser);
+export async function getUnreadCountForParent(parentUser: GovernedUser): Promise<number> {
+  await processPendingNotificationsForParent(parentUser);
   return notificationRepository.countUnreadByRecipient(parentUser.id);
 }
 

@@ -31,12 +31,21 @@ export interface ChannelDeliveryResult extends DeliveryResult {
 }
 
 /**
- * Calls every registered provider for one notification. A provider that
- * throws is caught and reported as FAILED for that channel only — one
- * misbehaving channel must never prevent the others (especially IN_APP)
- * from being attempted, and must never propagate into the caller
- * (NotificationService) or crash notification processing (spec "fail
- * safely" / "Provider failure must be isolated").
+ * Calls every registered provider for one notification, IN PARALLEL. A
+ * provider that throws synchronously OR rejects its promise is caught and
+ * reported as FAILED for that channel only — one misbehaving channel must
+ * never prevent the others (especially IN_APP) from being attempted, and
+ * must never propagate into the caller (NotificationService) or crash
+ * notification processing (spec "fail safely" / "Provider failure must be
+ * isolated"). Each provider call is wrapped in its own try/catch inside an
+ * `async` mapper function specifically so a synchronous throw (before a
+ * provider even returns a promise) and an asynchronous rejection (a real
+ * `await fetch(...)` failing) are caught identically — never two different
+ * failure paths to keep in sync.
+ *
+ * Phase 6C: async top to bottom (see NotificationDeliveryProvider.ts's
+ * header comment for why) — the caller (NotificationService) now awaits
+ * this.
  *
  * `providers` defaults to the real 4-provider list and is never overridden
  * in production code anywhere in this repository — the parameter exists
@@ -46,13 +55,19 @@ export interface ChannelDeliveryResult extends DeliveryResult {
  * REAL_PROVIDER" — the fake never lives in this file or any other
  * production module, only inline in the test that needs it).
  */
-export function deliverToAllChannels(payload: NotificationDeliveryPayload, providers: NotificationDeliveryProvider[] = PROVIDERS): ChannelDeliveryResult[] {
-  return providers.map((provider) => {
-    try {
-      return { channel: provider.channel, ...provider.deliver(payload) };
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : 'حدث خطأ غير متوقع أثناء محاولة التسليم.';
-      return { channel: provider.channel, outcome: 'FAILED' as const, failureReason: reason };
-    }
-  });
+export async function deliverToAllChannels(
+  payload: NotificationDeliveryPayload,
+  providers: NotificationDeliveryProvider[] = PROVIDERS
+): Promise<ChannelDeliveryResult[]> {
+  return Promise.all(
+    providers.map(async (provider): Promise<ChannelDeliveryResult> => {
+      try {
+        const result = await provider.deliver(payload);
+        return { channel: provider.channel, ...result };
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : 'حدث خطأ غير متوقع أثناء محاولة التسليم.';
+        return { channel: provider.channel, outcome: 'FAILED' as const, failureReason: reason };
+      }
+    })
+  );
 }

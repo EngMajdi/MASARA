@@ -182,17 +182,17 @@ describe('EmailNotificationProvider.deliver — the runtime boundary remains hon
 
   const payload = { notificationId: 'x', title: 't', body: 'b', priority: 'NORMAL' as const, recipient: { userId: 'u', email: 'parent@masara.om', name: 'n' } };
 
-  it('disabled -> SKIPPED', () => {
-    expect(EmailNotificationProvider.deliver(payload).outcome).toBe('SKIPPED');
+  it('disabled -> SKIPPED', async () => {
+    expect((await EmailNotificationProvider.deliver(payload)).outcome).toBe('SKIPPED');
   });
-  it('enabled, no credentials -> UNAVAILABLE (spec mandatory item 2)', () => {
+  it('enabled, no credentials -> UNAVAILABLE (spec mandatory item 2)', async () => {
     process.env.NOTIFICATION_EMAIL_ENABLED = 'true';
-    expect(EmailNotificationProvider.deliver(payload).outcome).toBe('UNAVAILABLE');
+    expect((await EmailNotificationProvider.deliver(payload)).outcome).toBe('UNAVAILABLE');
   });
-  it('enabled + credentials present -> still UNAVAILABLE, never SUCCESS — deliver() is synchronous and no real transport exists (spec mandatory item 3)', () => {
+  it('enabled + credentials present -> still UNAVAILABLE, never SUCCESS — no real transport exists (spec mandatory item 3)', async () => {
     process.env.NOTIFICATION_EMAIL_ENABLED = 'true';
     process.env.EMAIL_PROVIDER_API_KEY = 'fake-test-key-never-real';
-    const result = EmailNotificationProvider.deliver(payload);
+    const result = await EmailNotificationProvider.deliver(payload);
     expect(result.outcome).toBe('UNAVAILABLE');
     expect(result.outcome).not.toBe('SUCCESS');
   });
@@ -204,15 +204,15 @@ describe('EmailNotificationProvider.deliver — the runtime boundary remains hon
 // ---------------------------------------------------------------------------
 
 describe('The parent-facing NotificationView never carries provider internals (spec mandatory item 29)', () => {
-  it('getNotificationsForParent results have no providerMessageId, no channel, no failureReason field at all', () => {
+  it('getNotificationsForParent results have no providerMessageId, no channel, no failureReason field at all', async () => {
     const { parentUser, student, trip } = createFreshAuthorizedChild();
     let journey = createJourney(student.id, trip.id, SYSTEM);
     journey = startJourney(journey.id, SYSTEM);
     startBoarding(journey.id, SYSTEM);
     boardStudent(journey.id, SYSTEM);
-    processPendingNotificationsForParent(parentUser);
+    await processPendingNotificationsForParent(parentUser);
 
-    const notif = getNotificationsForParent(parentUser).find((n) => n.studentId === student.id)! as unknown as Record<string, unknown>;
+    const notif = (await getNotificationsForParent(parentUser)).find((n) => n.studentId === student.id)! as unknown as Record<string, unknown>;
     for (const forbiddenKey of ['providerMessageId', 'channel', 'failureReason', 'recipientUserId', 'eventType', 'sourceEventId']) {
       expect(Object.prototype.hasOwnProperty.call(notif, forbiddenKey)).toBe(false);
     }
@@ -225,7 +225,7 @@ describe('The parent-facing NotificationView never carries provider internals (s
 // ---------------------------------------------------------------------------
 
 describe('Isolation — extended to ETA and ETA Accuracy state (spec mandatory items 21-26, "Isolation" section)', () => {
-  it('journeys, trips, buses, students, routes, telemetry, current-location, ETA-accuracy observations, recommendations, audit_logs, and Journey Timeline are all unchanged by notification processing and delivery attempts', () => {
+  it('journeys, trips, buses, students, routes, telemetry, current-location, ETA-accuracy observations, recommendations, audit_logs, and Journey Timeline are all unchanged by notification processing and delivery attempts', async () => {
     const { parentUser, student, trip } = createFreshAuthorizedChild();
     let journey = createJourney(student.id, trip.id, SYSTEM);
     journey = startJourney(journey.id, SYSTEM);
@@ -246,10 +246,10 @@ describe('Isolation — extended to ETA and ETA Accuracy state (spec mandatory i
       timeline: JSON.stringify(getJourneyTimeline(journey.id)),
     };
 
-    processPendingNotificationsForParent(parentUser);
-    const notif = getNotificationsForParent(parentUser).find((n) => n.studentId === student.id)!;
+    await processPendingNotificationsForParent(parentUser);
+    const notif = (await getNotificationsForParent(parentUser)).find((n) => n.studentId === student.id)!;
     // Also exercise the EMAIL provider explicitly (still UNAVAILABLE/SKIPPED at runtime) as part of this same isolation pass.
-    deliverToAllChannels({ notificationId: notif.id, title: notif.title, body: notif.body, priority: notif.priority, recipient: { userId: parentUser.id, email: parentUser.email, name: parentUser.name } });
+    await deliverToAllChannels({ notificationId: notif.id, title: notif.title, body: notif.body, priority: notif.priority, recipient: { userId: parentUser.id, email: parentUser.email, name: parentUser.name } });
 
     expect(auditRepository.findAll().length).toBe(before.auditCount);
     expect(JSON.stringify(journeyRepository.findByStudentId(student.id))).toBe(before.journeys);
@@ -277,7 +277,7 @@ describe('Security matrix remains enforced (spec mandatory items 9-19)', () => {
     expect(requireParentUser('nobody@masara.om').ok).toBe(false);
   });
 
-  it('Parent A still cannot receive Parent B\'s notifications', () => {
+  it('Parent A still cannot receive Parent B\'s notifications', async () => {
     const a = createFreshAuthorizedChild();
     const b = createFreshAuthorizedChild();
     for (const { parentUser, student, trip } of [a, b]) {
@@ -285,9 +285,9 @@ describe('Security matrix remains enforced (spec mandatory items 9-19)', () => {
       j = startJourney(j.id, SYSTEM);
       startBoarding(j.id, SYSTEM);
       boardStudent(j.id, SYSTEM);
-      processPendingNotificationsForParent(parentUser);
+      await processPendingNotificationsForParent(parentUser);
     }
-    const viewsA = getNotificationsForParent(a.parentUser);
+    const viewsA = await getNotificationsForParent(a.parentUser);
     expect(viewsA.every((n) => n.studentId === a.student.id)).toBe(true);
   });
 });
@@ -300,7 +300,8 @@ describe('Source-scan governance guards (spec "Source-Scan Guards" section)', ()
   const emailSource = fs.readFileSync(path.resolve(__dirname, '../../server/services/EmailNotificationProvider.ts'), 'utf8');
   const providerContractSource = fs.readFileSync(path.resolve(__dirname, '../../server/services/NotificationDeliveryProvider.ts'), 'utf8');
   const routesSource = fs.readFileSync(path.resolve(__dirname, '../../server/routes/parentRoutes.ts'), 'utf8');
-  const forbiddenImports = /from ['"].*\/(JourneyService|JourneyStateMachine|ActionExecutor|PolicyEngine|MasaraOperationsAgent|TelemetryIngestionService)['"]/;
+  const forbiddenImports =
+    /from ['"].*\/(JourneyService|JourneyStateMachine|ActionExecutor|PolicyEngine|MasaraOperationsAgent|PredictionEngine|TelemetryIngestionService|EtaService|ApprovalCenter)['"]/;
 
   it('EmailNotificationProvider.ts imports no Journey/governance mutation module', () => {
     expect(emailSource).not.toMatch(forbiddenImports);

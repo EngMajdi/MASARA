@@ -373,7 +373,7 @@ describe('Email fallback policy — deterministic precedence (spec "Email Fallba
 // ---------------------------------------------------------------------------
 
 describe('Notification integration — unaffected by contact resolution wiring (spec mandatory)', () => {
-  it('a real Journey boarding event still produces exactly one correctly-delivered in-app notification', () => {
+  it('a real Journey boarding event still produces exactly one correctly-delivered in-app notification', async () => {
     const parentUser = userRepository.findByEmail('parent@masara.om')!;
     const student = resolveAuthorizedStudents(parentUser)[0];
     const trip = tripRepository.findAll().find((t) => t.busId === student.busId)!;
@@ -382,34 +382,34 @@ describe('Notification integration — unaffected by contact resolution wiring (
     startBoarding(journey.id, SYSTEM);
     boardStudent(journey.id, SYSTEM);
 
-    processPendingNotificationsForParent(parentUser);
-    const notifs = getNotificationsForParent(parentUser).filter((n) => n.studentId === student.id);
+    await processPendingNotificationsForParent(parentUser);
+    const notifs = (await getNotificationsForParent(parentUser)).filter((n) => n.studentId === student.id);
     expect(notifs.length).toBeGreaterThanOrEqual(1);
     expect(notifs[0].status).toBe('SENT');
   });
 
-  it('contact resolution never duplicates a notification row on repeated processing', () => {
+  it('contact resolution never duplicates a notification row on repeated processing', async () => {
     const { parentUser, student, trip } = createFreshAuthorizedChild();
     let journey = createJourney(student.id, trip.id, SYSTEM);
     journey = startJourney(journey.id, SYSTEM);
     startBoarding(journey.id, SYSTEM);
     boardStudent(journey.id, SYSTEM);
 
-    processPendingNotificationsForParent(parentUser);
-    const before = getNotificationsForParent(parentUser).length;
-    processPendingNotificationsForParent(parentUser);
-    processPendingNotificationsForParent(parentUser);
-    expect(getNotificationsForParent(parentUser).length).toBe(before);
+    await processPendingNotificationsForParent(parentUser);
+    const before = (await getNotificationsForParent(parentUser)).length;
+    await processPendingNotificationsForParent(parentUser);
+    await processPendingNotificationsForParent(parentUser);
+    expect((await getNotificationsForParent(parentUser)).length).toBe(before);
   });
 
-  it('polling getNotificationsForParent repeatedly is idempotent', () => {
+  it('polling getNotificationsForParent repeatedly is idempotent', async () => {
     const parentUser = userRepository.findByEmail('parent@masara.om')!;
-    const first = getNotificationsForParent(parentUser);
-    const second = getNotificationsForParent(parentUser);
+    const first = await getNotificationsForParent(parentUser);
+    const second = await getNotificationsForParent(parentUser);
     expect(first.length).toBe(second.length);
   });
 
-  it('a throwing provider does not mutate Journey, telemetry, or ETA state even after contact resolution runs', () => {
+  it('a throwing provider does not mutate Journey, telemetry, or ETA state even after contact resolution runs', async () => {
     const { parentUser, student, trip } = createFreshAuthorizedChild();
     let journey = createJourney(student.id, trip.id, SYSTEM);
     journey = startJourney(journey.id, SYSTEM);
@@ -424,10 +424,10 @@ describe('Notification integration — unaffected by contact resolution wiring (
       timeline: JSON.stringify(getJourneyTimeline(journey.id)),
     };
 
-    processPendingNotificationsForParent(parentUser);
-    const notif = getNotificationsForParent(parentUser).find((n) => n.studentId === student.id)!;
+    await processPendingNotificationsForParent(parentUser);
+    const notif = (await getNotificationsForParent(parentUser)).find((n) => n.studentId === student.id)!;
     const throwingProvider: NotificationDeliveryProvider = { channel: 'PUSH', deliver: () => { throw new Error('اختبار'); } };
-    deliverToAllChannels(
+    await deliverToAllChannels(
       { notificationId: notif.id, title: notif.title, body: notif.body, priority: notif.priority, recipient: { userId: parentUser.id, email: parentUser.email, name: parentUser.name } },
       [throwingProvider]
     );
@@ -470,10 +470,10 @@ describe('Privacy — contacts and verification secrets never leak (spec mandato
     expect(() => confirmVerification(a, bContact.id, 'x')).toThrow(ContactAccessDeniedError);
   });
 
-  it('getNotificationsForParent results carry no contact-shaped field (email/phone/pushToken/contact)', () => {
+  it('getNotificationsForParent results carry no contact-shaped field (email/phone/pushToken/contact)', async () => {
     const parentUser = userRepository.findByEmail('parent@masara.om')!;
-    processPendingNotificationsForParent(parentUser);
-    const notif = getNotificationsForParent(parentUser)[0] as unknown as Record<string, unknown>;
+    await processPendingNotificationsForParent(parentUser);
+    const notif = (await getNotificationsForParent(parentUser))[0] as unknown as Record<string, unknown>;
     for (const forbiddenKey of ['email', 'phone', 'pushToken', 'smsAddress', 'contact', 'recipient']) {
       expect(Object.prototype.hasOwnProperty.call(notif, forbiddenKey)).toBe(false);
     }
@@ -492,7 +492,7 @@ describe('Privacy — contacts and verification secrets never leak (spec mandato
 // ---------------------------------------------------------------------------
 
 describe('Isolation — contact verification and delivery resolution touch nothing outside notifications/user_contacts (spec mandatory)', () => {
-  it('journeys, students, trips, buses, routes, telemetry, current-location, ETA-accuracy, recommendations, and audit_logs are unchanged by a verification request/confirm cycle plus a real notification flow', () => {
+  it('journeys, students, trips, buses, routes, telemetry, current-location, ETA-accuracy, recommendations, and audit_logs are unchanged by a verification request/confirm cycle plus a real notification flow', async () => {
     const { parentUser, student, trip } = createFreshAuthorizedChild();
 
     const before = {
@@ -518,7 +518,7 @@ describe('Isolation — contact verification and delivery resolution touch nothi
     journey = startJourney(journey.id, SYSTEM);
     startBoarding(journey.id, SYSTEM);
     boardStudent(journey.id, SYSTEM);
-    processPendingNotificationsForParent(parentUser);
+    await processPendingNotificationsForParent(parentUser);
 
     expect(JSON.stringify(studentRepository.findAll())).toBe(before.students);
     expect(JSON.stringify(tripRepository.findAll())).toBe(before.trips);

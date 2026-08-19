@@ -57,18 +57,28 @@ parentRouter.get('/api/parent/journeys/:journeyId/events', (req, res) => {
 
 const DEFAULT_NOTIFICATION_LIMIT = 20;
 
-parentRouter.get('/api/parent/notifications', (req, res) => {
+parentRouter.get('/api/parent/notifications', async (req, res) => {
   const guard = requireParentUser(req.query.userEmail);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const rawLimit = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : NaN;
   const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : DEFAULT_NOTIFICATION_LIMIT;
-  res.json(getNotificationsForParent(guard.user, limit));
+  try {
+    res.json(await getNotificationsForParent(guard.user, limit));
+  } catch (err) {
+    console.error('Parent notifications error:', err);
+    res.status(500).json({ error: 'حدث خطأ غير متوقع أثناء تحميل الإشعارات.' });
+  }
 });
 
-parentRouter.get('/api/parent/notifications/unread-count', (req, res) => {
+parentRouter.get('/api/parent/notifications/unread-count', async (req, res) => {
   const guard = requireParentUser(req.query.userEmail);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
-  res.json({ count: getUnreadCountForParent(guard.user) });
+  try {
+    res.json({ count: await getUnreadCountForParent(guard.user) });
+  } catch (err) {
+    console.error('Parent unread-count error:', err);
+    res.status(500).json({ error: 'حدث خطأ غير متوقع أثناء حساب عدد الإشعارات غير المقروءة.' });
+  }
 });
 
 parentRouter.post('/api/parent/notifications/:id/read', (req, res) => {

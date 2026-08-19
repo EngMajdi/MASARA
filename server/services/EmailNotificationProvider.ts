@@ -21,20 +21,18 @@ import { sanitizeProviderErrorMessage } from './NotificationDeliveryProvider';
 // sanitized) is already correct and already tested, not invented under
 // pressure later.
 //
-// SYNCHRONOUS BY DESIGN: NotificationDeliveryProvider.deliver is, and
-// remains, synchronous — a deliberate choice, not an oversight. A real
-// HTTP call to an email vendor is inherently asynchronous; making `deliver`
-// return `Promise<DeliveryResult>` would cascade into
-// NotificationDeliveryManager, NotificationService, and the parent read
-// routes all becoming async — a genuine architectural change this phase
-// does not make absent real credentials to justify it ("do not redesign
-// the architecture"). This is documented here as the concrete Phase 6
-// dependency, not smuggled in as a side effect of "just adding a provider."
-// Consequently `deliver()` below can never actually reach a real vendor
-// call in this codebase today — it is gated at the same isEnabled/
-// hasCredentials boundary Phase 5C already established, and even in a
-// hypothetical enabled+credentialed state it still returns UNAVAILABLE,
-// honestly, rather than pretending a synchronous call happened.
+// ASYNC (Phase 6C): `deliver` now returns `Promise<DeliveryResult>` — the
+// cascade Phase 5D deliberately deferred (NotificationDeliveryManager,
+// NotificationService, and the two parent-facing read routes are now
+// async too) is done. This still does NOT mean a real vendor is
+// integrated: no email SDK/SMTP client is installed in package.json, no
+// EMAIL_PROVIDER_API_KEY is ever configured in this deployment (Phase 6C's
+// own architecture audit re-confirmed this, unchanged since Phase 5C). A
+// real vendor call would `await fetch(vendorUrl, { headers: { 'Idempotency-Key':
+// deriveDeliveryIdempotencyKey(payload.notificationId), ... } })` here and
+// feed the response through classifyEmailProviderResponse/
+// classifyEmailProviderError below exactly as already built — but no such
+// call is made, because there is nothing real to call.
 //
 // RETRY POLICY (documented, not implemented as an automatic loop — spec:
 // "If the current prototype does not have durable retry infrastructure,
@@ -93,7 +91,7 @@ export function classifyEmailProviderError(err: unknown, timedOut = false): Deli
 
 export const EmailNotificationProvider: NotificationDeliveryProvider = {
   channel: 'EMAIL',
-  deliver(_payload: NotificationDeliveryPayload): DeliveryResult {
+  async deliver(_payload: NotificationDeliveryPayload): Promise<DeliveryResult> {
     if (!isEnabled()) {
       return { outcome: 'SKIPPED', failureReason: 'قناة البريد الإلكتروني غير مُفعّلة.' };
     }
@@ -101,10 +99,10 @@ export const EmailNotificationProvider: NotificationDeliveryProvider = {
       return { outcome: 'UNAVAILABLE', failureReason: 'بيانات اعتماد مزود البريد الإلكتروني غير مُهيأة.' };
     }
     // Reachable only if EMAIL_PROVIDER_API_KEY is ever configured — never
-    // true in this deployment. Even then: no real transport call is made
-    // here, since deliver() is synchronous and a real vendor call is not
-    // (see header comment). Fails closed honestly rather than fabricating
-    // a synchronous "success".
-    return { outcome: 'UNAVAILABLE', failureReason: 'لا يوجد تكامل غير متزامن فعلي مع مزود بريد إلكتروني بعد.' };
+    // true in this deployment. Even now that deliver() is genuinely async
+    // (Phase 6C), no real transport call is made here, because there is no
+    // real vendor to call (see header comment). Fails closed honestly
+    // rather than fabricating a "success".
+    return { outcome: 'UNAVAILABLE', failureReason: 'لا يوجد تكامل فعلي مع مزود بريد إلكتروني بعد.' };
   },
 };

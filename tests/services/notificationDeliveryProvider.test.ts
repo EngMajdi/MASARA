@@ -70,7 +70,7 @@ function makePayload(notificationId: string, recipient: { userId: string; email:
 // ---------------------------------------------------------------------------
 
 describe('InAppNotificationProvider — the one real provider (spec mandatory item 1)', () => {
-  it('delivering a real notification row succeeds and marks it SENT', () => {
+  it('delivering a real notification row succeeds and marks it SENT', async () => {
     const { parentUser, student, trip } = createFreshAuthorizedChild();
     const journey = journeyRepository.create({ studentId: student.id, tripId: trip.id, state: 'scheduled' });
     const id = notificationRepository.insertIfAbsent({
@@ -86,7 +86,7 @@ describe('InAppNotificationProvider — the one real provider (spec mandatory it
       priority: 'NORMAL',
     })!;
 
-    const result = InAppNotificationProvider.deliver(makePayload(id, { userId: parentUser.id, email: parentUser.email, name: parentUser.name }));
+    const result = await InAppNotificationProvider.deliver(makePayload(id, { userId: parentUser.id, email: parentUser.email, name: parentUser.name }));
     expect(result.outcome).toBe('SUCCESS');
     const row = notificationRepository.findById(id)!;
     expect(row.status).toBe('SENT');
@@ -119,36 +119,36 @@ describe('External providers are honest boundaries — never fabricate delivery 
 
   const payload = makePayload('irrelevant-notification-id', { userId: 'u1', email: 'parent@masara.om', name: 'Test Parent' });
 
-  it('PUSH: disabled by default -> SKIPPED (no attempt at all)', () => {
-    expect(PushNotificationProvider.deliver(payload).outcome).toBe('SKIPPED');
+  it('PUSH: disabled by default -> SKIPPED (no attempt at all)', async () => {
+    expect((await PushNotificationProvider.deliver(payload)).outcome).toBe('SKIPPED');
   });
-  it('PUSH: enabled but no credentials -> UNAVAILABLE (spec mandatory item 2)', () => {
+  it('PUSH: enabled but no credentials -> UNAVAILABLE (spec mandatory item 2)', async () => {
     process.env.NOTIFICATION_PUSH_ENABLED = 'true';
-    expect(PushNotificationProvider.deliver(payload).outcome).toBe('UNAVAILABLE');
+    expect((await PushNotificationProvider.deliver(payload)).outcome).toBe('UNAVAILABLE');
   });
-  it('PUSH: enabled + credentials present -> still UNAVAILABLE — no real vendor SDK is integrated', () => {
+  it('PUSH: enabled + credentials present -> still UNAVAILABLE — no real vendor SDK is integrated', async () => {
     process.env.NOTIFICATION_PUSH_ENABLED = 'true';
     process.env.PUSH_PROVIDER_API_KEY = 'fake-test-key';
-    expect(PushNotificationProvider.deliver(payload).outcome).toBe('UNAVAILABLE');
+    expect((await PushNotificationProvider.deliver(payload)).outcome).toBe('UNAVAILABLE');
   });
 
-  it('SMS: disabled by default -> SKIPPED', () => {
-    expect(SmsNotificationProvider.deliver(payload).outcome).toBe('SKIPPED');
+  it('SMS: disabled by default -> SKIPPED', async () => {
+    expect((await SmsNotificationProvider.deliver(payload)).outcome).toBe('SKIPPED');
   });
-  it('SMS: enabled but no credentials -> UNAVAILABLE (spec mandatory item 3)', () => {
+  it('SMS: enabled but no credentials -> UNAVAILABLE (spec mandatory item 3)', async () => {
     process.env.NOTIFICATION_SMS_ENABLED = 'true';
-    expect(SmsNotificationProvider.deliver(payload).outcome).toBe('UNAVAILABLE');
+    expect((await SmsNotificationProvider.deliver(payload)).outcome).toBe('UNAVAILABLE');
   });
 
-  it('EMAIL: disabled by default -> SKIPPED', () => {
-    expect(EmailNotificationProvider.deliver(payload).outcome).toBe('SKIPPED');
+  it('EMAIL: disabled by default -> SKIPPED', async () => {
+    expect((await EmailNotificationProvider.deliver(payload)).outcome).toBe('SKIPPED');
   });
-  it('EMAIL: enabled but no credentials -> UNAVAILABLE (spec mandatory item 4)', () => {
+  it('EMAIL: enabled but no credentials -> UNAVAILABLE (spec mandatory item 4)', async () => {
     process.env.NOTIFICATION_EMAIL_ENABLED = 'true';
-    expect(EmailNotificationProvider.deliver(payload).outcome).toBe('UNAVAILABLE');
+    expect((await EmailNotificationProvider.deliver(payload)).outcome).toBe('UNAVAILABLE');
   });
 
-  it('none of the three external providers ever return SUCCESS under any configuration', () => {
+  it('none of the three external providers ever return SUCCESS under any configuration', async () => {
     process.env.NOTIFICATION_PUSH_ENABLED = 'true';
     process.env.PUSH_PROVIDER_API_KEY = 'x';
     process.env.NOTIFICATION_SMS_ENABLED = 'true';
@@ -156,15 +156,15 @@ describe('External providers are honest boundaries — never fabricate delivery 
     process.env.NOTIFICATION_EMAIL_ENABLED = 'true';
     process.env.EMAIL_PROVIDER_API_KEY = 'x';
     for (const provider of [PushNotificationProvider, SmsNotificationProvider, EmailNotificationProvider]) {
-      expect(provider.deliver(payload).outcome).not.toBe('SUCCESS');
+      expect((await provider.deliver(payload)).outcome).not.toBe('SUCCESS');
     }
   });
 
-  it('external providers never touch the database at all (pure functions — cannot corrupt notification state)', () => {
+  it('external providers never touch the database at all (pure functions — cannot corrupt notification state)', async () => {
     const before = notificationRepository.findByRecipient('u1').length;
-    PushNotificationProvider.deliver(payload);
-    SmsNotificationProvider.deliver(payload);
-    EmailNotificationProvider.deliver(payload);
+    await PushNotificationProvider.deliver(payload);
+    await SmsNotificationProvider.deliver(payload);
+    await EmailNotificationProvider.deliver(payload);
     expect(notificationRepository.findByRecipient('u1').length).toBe(before);
   });
 });
@@ -175,7 +175,7 @@ describe('External providers are honest boundaries — never fabricate delivery 
 // ---------------------------------------------------------------------------
 
 describe('NotificationDeliveryManager — orchestrates every channel, isolates failures (spec mandatory)', () => {
-  it('deliverToAllChannels returns a result for exactly the 4 known channels, IN_APP succeeding, others SKIPPED by default', () => {
+  it('deliverToAllChannels returns a result for exactly the 4 known channels, IN_APP succeeding, others SKIPPED by default', async () => {
     const { parentUser, student, trip } = createFreshAuthorizedChild();
     const journey = journeyRepository.create({ studentId: student.id, tripId: trip.id, state: 'scheduled' });
     const id = notificationRepository.insertIfAbsent({
@@ -191,7 +191,7 @@ describe('NotificationDeliveryManager — orchestrates every channel, isolates f
       priority: 'NORMAL',
     })!;
 
-    const results = deliverToAllChannels(makePayload(id, { userId: parentUser.id, email: parentUser.email, name: parentUser.name }));
+    const results = await deliverToAllChannels(makePayload(id, { userId: parentUser.id, email: parentUser.email, name: parentUser.name }));
     expect(results.map((r) => r.channel).sort()).toEqual(['EMAIL', 'IN_APP', 'PUSH', 'SMS']);
     expect(results.find((r) => r.channel === 'IN_APP')!.outcome).toBe('SUCCESS');
     expect(results.find((r) => r.channel === 'PUSH')!.outcome).toBe('SKIPPED');
@@ -199,23 +199,23 @@ describe('NotificationDeliveryManager — orchestrates every channel, isolates f
     expect(results.find((r) => r.channel === 'EMAIL')!.outcome).toBe('SKIPPED');
   });
 
-  it('a throwing provider is caught and reported FAILED for that channel only — other channels still run (spec mandatory item 5, "fail safely")', () => {
+  it('a throwing provider is caught and reported FAILED for that channel only — other channels still run (spec mandatory item 5, "fail safely")', async () => {
     const throwingProvider: NotificationDeliveryProvider = {
       channel: 'PUSH',
       deliver() {
         throw new Error('اختبار: مزود معطل عمداً');
       },
     };
-    const okProvider: NotificationDeliveryProvider = { channel: 'EMAIL', deliver: () => ({ outcome: 'SKIPPED' }) };
+    const okProvider: NotificationDeliveryProvider = { channel: 'EMAIL', deliver: async () => ({ outcome: 'SKIPPED' }) };
 
-    const results = deliverToAllChannels(makePayload('any-id', { userId: 'u', email: 'e', name: 'n' }), [throwingProvider, InAppNotificationProvider, okProvider]);
+    const results = await deliverToAllChannels(makePayload('any-id', { userId: 'u', email: 'e', name: 'n' }), [throwingProvider, InAppNotificationProvider, okProvider]);
     expect(results.find((r) => r.channel === 'PUSH')!.outcome).toBe('FAILED');
     // InAppNotificationProvider still ran despite the earlier provider throwing.
     expect(results.some((r) => r.channel === 'IN_APP')).toBe(true);
     expect(results.find((r) => r.channel === 'EMAIL')!.outcome).toBe('SKIPPED');
   });
 
-  it('provider failure never deletes or otherwise mutates the notification row (spec mandatory item 5)', () => {
+  it('provider failure never deletes or otherwise mutates the notification row (spec mandatory item 5)', async () => {
     const { parentUser, student, trip } = createFreshAuthorizedChild();
     const journey = journeyRepository.create({ studentId: student.id, tripId: trip.id, state: 'scheduled' });
     const id = notificationRepository.insertIfAbsent({
@@ -238,7 +238,7 @@ describe('NotificationDeliveryManager — orchestrates every channel, isolates f
         throw new Error('اختبار');
       },
     };
-    deliverToAllChannels(makePayload(id, { userId: parentUser.id, email: parentUser.email, name: parentUser.name }), [throwingProvider]);
+    await deliverToAllChannels(makePayload(id, { userId: parentUser.id, email: parentUser.email, name: parentUser.name }), [throwingProvider]);
 
     const after = notificationRepository.findById(id)!;
     expect(after.id).toBe(before.id);
@@ -252,7 +252,7 @@ describe('NotificationDeliveryManager — orchestrates every channel, isolates f
 // ---------------------------------------------------------------------------
 
 describe('Retry / idempotency — delivery never creates a second notification row (spec mandatory items 11, 12)', () => {
-  it('calling deliverToAllChannels twice for the same notificationId never creates another notification row', () => {
+  it('calling deliverToAllChannels twice for the same notificationId never creates another notification row', async () => {
     const { parentUser, student, trip } = createFreshAuthorizedChild();
     const journey = journeyRepository.create({ studentId: student.id, tripId: trip.id, state: 'scheduled' });
     const id = notificationRepository.insertIfAbsent({
@@ -269,25 +269,25 @@ describe('Retry / idempotency — delivery never creates a second notification r
     })!;
     const recipient = { userId: parentUser.id, email: parentUser.email, name: parentUser.name };
 
-    deliverToAllChannels(makePayload(id, recipient));
-    deliverToAllChannels(makePayload(id, recipient)); // retry
-    deliverToAllChannels(makePayload(id, recipient)); // retry again
+    await deliverToAllChannels(makePayload(id, recipient));
+    await deliverToAllChannels(makePayload(id, recipient)); // retry
+    await deliverToAllChannels(makePayload(id, recipient)); // retry again
 
     expect(notificationRepository.findByRecipient(parentUser.id).filter((n) => n.sourceEventId === 'retry-test-1')).toHaveLength(1);
   });
 
-  it('full end-to-end: processing the same real Journey event three times produces exactly one notification, delivered once', () => {
+  it('full end-to-end: processing the same real Journey event three times produces exactly one notification, delivered once', async () => {
     const { parentUser, student, trip } = createFreshAuthorizedChild();
     let journey = createJourney(student.id, trip.id, SYSTEM);
     journey = startJourney(journey.id, SYSTEM);
     startBoarding(journey.id, SYSTEM);
     boardStudent(journey.id, SYSTEM);
 
-    processPendingNotificationsForParent(parentUser);
-    processPendingNotificationsForParent(parentUser);
-    processPendingNotificationsForParent(parentUser);
+    await processPendingNotificationsForParent(parentUser);
+    await processPendingNotificationsForParent(parentUser);
+    await processPendingNotificationsForParent(parentUser);
 
-    const notifs = getNotificationsForParent(parentUser).filter((n) => n.studentId === student.id);
+    const notifs = (await getNotificationsForParent(parentUser)).filter((n) => n.studentId === student.id);
     expect(notifs).toHaveLength(1);
     expect(notifs[0].status).toBe('SENT');
   });
@@ -299,7 +299,7 @@ describe('Retry / idempotency — delivery never creates a second notification r
 // ---------------------------------------------------------------------------
 
 describe('Isolation — delivery (including a failing provider) never mutates operational state (spec mandatory items 6, 7, 8, 18, 19, 20)', () => {
-  it('journeys, trips, buses, students, routes, telemetry_observations, current_location_projection, recommendations, audit_logs, and Journey Timeline are all unchanged', () => {
+  it('journeys, trips, buses, students, routes, telemetry_observations, current_location_projection, recommendations, audit_logs, and Journey Timeline are all unchanged', async () => {
     const { parentUser, student, trip } = createFreshAuthorizedChild();
     let journey = createJourney(student.id, trip.id, SYSTEM);
     journey = startJourney(journey.id, SYSTEM);
@@ -320,11 +320,11 @@ describe('Isolation — delivery (including a failing provider) never mutates op
     };
 
     // Normal delivery path (real providers, including the always-unavailable external ones).
-    processPendingNotificationsForParent(parentUser);
+    await processPendingNotificationsForParent(parentUser);
     // And a delivery attempt with a throwing provider mixed in, for good measure.
-    const notif = getNotificationsForParent(parentUser).find((n) => n.studentId === student.id)!;
+    const notif = (await getNotificationsForParent(parentUser)).find((n) => n.studentId === student.id)!;
     const throwingProvider: NotificationDeliveryProvider = { channel: 'PUSH', deliver: () => { throw new Error('اختبار'); } };
-    deliverToAllChannels(makePayload(notif.id, { userId: parentUser.id, email: parentUser.email, name: parentUser.name }), [throwingProvider, InAppNotificationProvider]);
+    await deliverToAllChannels(makePayload(notif.id, { userId: parentUser.id, email: parentUser.email, name: parentUser.name }), [throwingProvider, InAppNotificationProvider]);
 
     expect(auditRepository.findAll().length).toBe(before.auditCount);
     expect(JSON.stringify(journeyRepository.findByStudentId(student.id))).toBe(before.journeys);
@@ -353,7 +353,7 @@ describe('Security remains enforced through the Phase 5C delivery path (spec man
     expect(requireParentUser(undefined).ok).toBe(false);
   });
 
-  it('Parent A still cannot receive Parent B\'s notifications after Phase 5C wiring', () => {
+  it('Parent A still cannot receive Parent B\'s notifications after Phase 5C wiring', async () => {
     const a = createFreshAuthorizedChild();
     const b = createFreshAuthorizedChild();
     let journeyA = createJourney(a.student.id, a.trip.id, SYSTEM);
@@ -365,10 +365,10 @@ describe('Security remains enforced through the Phase 5C delivery path (spec man
     startBoarding(journeyB.id, SYSTEM);
     boardStudent(journeyB.id, SYSTEM);
 
-    processPendingNotificationsForParent(a.parentUser);
-    processPendingNotificationsForParent(b.parentUser);
+    await processPendingNotificationsForParent(a.parentUser);
+    await processPendingNotificationsForParent(b.parentUser);
 
-    const viewsA = getNotificationsForParent(a.parentUser);
+    const viewsA = await getNotificationsForParent(a.parentUser);
     expect(viewsA.every((n) => n.studentId === a.student.id)).toBe(true);
     expect(viewsA.some((n) => n.studentId === b.student.id)).toBe(false);
   });
@@ -391,7 +391,8 @@ describe('Source-scan governance guards (spec mandatory) — providers cannot to
   const emailSource = fs.readFileSync(path.resolve(__dirname, '../../server/services/EmailNotificationProvider.ts'), 'utf8');
   const inAppSource = fs.readFileSync(path.resolve(__dirname, '../../server/services/NotificationDeliveryProvider.ts'), 'utf8');
   const routesSource = fs.readFileSync(path.resolve(__dirname, '../../server/routes/parentRoutes.ts'), 'utf8');
-  const forbiddenImports = /from ['"].*\/(JourneyService|JourneyStateMachine|ActionExecutor|PolicyEngine|MasaraOperationsAgent|TelemetryIngestionService)['"]/;
+  const forbiddenImports =
+    /from ['"].*\/(JourneyService|JourneyStateMachine|ActionExecutor|PolicyEngine|MasaraOperationsAgent|PredictionEngine|TelemetryIngestionService|EtaService|ApprovalCenter)['"]/;
   const forbiddenAi = /(GoogleGenAI|generateContent|LLMProvider|MockProvider)/;
 
   it('no provider or the delivery manager imports a Journey/governance mutation module', () => {

@@ -80,25 +80,38 @@ export interface NotificationDeliveryPayload {
   recipient: { userId: string; email: string; name: string; smsAddress?: string; pushToken?: string };
 }
 
+/**
+ * Phase 6C — async by contract. Phase 5D flagged that a real vendor call is
+ * inherently network I/O and therefore asynchronous, but left `deliver`
+ * synchronous rather than cascade an unjustified architectural change
+ * absent real credentials to justify it. Phase 6C resolves that boundary
+ * unconditionally (spec: "Phase 6C MUST resolve this properly if a real
+ * provider requires network I/O") — every provider, including the
+ * synchronous IN_APP one, now returns a Promise, so a future real vendor
+ * call (`await fetch(...)`) is a drop-in addition to any provider's
+ * `deliver` body without this interface, NotificationDeliveryManager, or
+ * NotificationService changing shape again.
+ */
 export interface NotificationDeliveryProvider {
   readonly channel: NotificationChannel;
-  deliver(payload: NotificationDeliveryPayload): DeliveryResult;
+  deliver(payload: NotificationDeliveryPayload): Promise<DeliveryResult>;
 }
 
 /**
- * The one REAL implementation (unchanged from Phase 5B in behavior): for an
+ * The one REAL implementation (unchanged behavior since Phase 5B): for an
  * in-app notification, "delivery" IS the row existing in a table the
  * parent's own read API already serves, so there is no separate
- * transmission step to simulate. This is also the only provider whose
- * result is persisted onto the `notifications` row itself
- * (status/sentAt/failedAt) — those columns have represented the IN_APP
- * channel specifically since Phase 5B, and continue to (see
- * NotificationDeliveryManager's header comment for why Phase 5C adds no
- * migration for the new external channels).
+ * transmission step to simulate — `deliver` is `async` only for interface
+ * uniformity, not because this provider performs any I/O of its own. This
+ * is also the only provider whose result is persisted onto the
+ * `notifications` row itself (status/sentAt/failedAt) — those columns have
+ * represented the IN_APP channel specifically since Phase 5B, and continue
+ * to (see NotificationDeliveryManager's header comment for why Phase 5C
+ * adds no migration for the new external channels).
  */
 export const InAppNotificationProvider: NotificationDeliveryProvider = {
   channel: 'IN_APP',
-  deliver(payload: NotificationDeliveryPayload): DeliveryResult {
+  async deliver(payload: NotificationDeliveryPayload): Promise<DeliveryResult> {
     try {
       notificationRepository.markSent(payload.notificationId);
       return { outcome: 'SUCCESS' };
@@ -109,3 +122,20 @@ export const InAppNotificationProvider: NotificationDeliveryProvider = {
     }
   },
 };
+
+/**
+ * Phase 6C — idempotency key derivation (spec "Idempotency": "derive it
+ * deterministically from the existing notification identity... do NOT
+ * generate a new random idempotency key per retry"). `notificationId`
+ * already deterministically maps 1:1 to the real dedup boundary —
+ * `UNIQUE(recipient_user_id, source_event_id)` on the `notifications`
+ * table — so it IS that identity; nothing new is generated. A real vendor
+ * call would pass this value as its own Idempotency-Key header (or
+ * equivalent), so a retry against the same notification is a genuine
+ * vendor-side no-op instead of a second message. No provider in this
+ * codebase makes a real network call yet, so this is exercised only by
+ * direct unit tests today — never randomized, never per-attempt.
+ */
+export function deriveDeliveryIdempotencyKey(notificationId: string): string {
+  return notificationId;
+}

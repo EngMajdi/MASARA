@@ -239,27 +239,27 @@ describe('Deduplication — database-enforced, never timestamp-based (spec §10 
     expect(notificationRepository.findByRecipient(parentUser.id).filter((n) => n.sourceEventId === candidate.sourceEventId)).toHaveLength(1);
   });
 
-  it('a real STUDENT_BOARDED Journey event processed twice via the full service produces exactly one notification', () => {
+  it('a real STUDENT_BOARDED Journey event processed twice via the full service produces exactly one notification', async () => {
     const { parentUser, student, trip } = createFreshAuthorizedChild();
     driveToState(student.id, trip.id, 'on_bus');
 
-    processPendingNotificationsForParent(parentUser);
-    const afterFirst = getNotificationsForParent(parentUser).filter((n) => n.studentId === student.id);
+    await processPendingNotificationsForParent(parentUser);
+    const afterFirst = (await getNotificationsForParent(parentUser)).filter((n) => n.studentId === student.id);
     expect(afterFirst).toHaveLength(1);
 
-    processPendingNotificationsForParent(parentUser); // second processing pass — same underlying audit_logs row
-    processPendingNotificationsForParent(parentUser); // third
-    const afterThird = getNotificationsForParent(parentUser).filter((n) => n.studentId === student.id);
+    await processPendingNotificationsForParent(parentUser); // second processing pass — same underlying audit_logs row
+    await processPendingNotificationsForParent(parentUser); // third
+    const afterThird = (await getNotificationsForParent(parentUser)).filter((n) => n.studentId === student.id);
     expect(afterThird).toHaveLength(1);
     expect(afterThird[0].id).toBe(afterFirst[0].id);
   });
 
-  it('different source events for the same student produce separate notifications', () => {
+  it('different source events for the same student produce separate notifications', async () => {
     const { parentUser, student, trip } = createFreshAuthorizedChild();
     driveToState(student.id, trip.id, 'dropped_off'); // passes through STUDENT_BOARDED, STOP_APPROACHING, STUDENT_DROPPED_OFF — 3 eligible events
 
-    processPendingNotificationsForParent(parentUser);
-    const notifications = getNotificationsForParent(parentUser).filter((n) => n.studentId === student.id);
+    await processPendingNotificationsForParent(parentUser);
+    const notifications = (await getNotificationsForParent(parentUser)).filter((n) => n.studentId === student.id);
     expect(notifications).toHaveLength(3);
     const uniqueIds = new Set(notifications.map((n) => n.id));
     expect(uniqueIds.size).toBe(3);
@@ -271,28 +271,28 @@ describe('Deduplication — database-enforced, never timestamp-based (spec §10 
 // ---------------------------------------------------------------------------
 
 describe('Recipient isolation — reuses ParentAccessService exclusively (spec §13/§21 mandatory)', () => {
-  it('Parent A sees only their own notifications; Parent B sees only theirs', () => {
+  it('Parent A sees only their own notifications; Parent B sees only theirs', async () => {
     const a = createFreshAuthorizedChild();
     const b = createFreshAuthorizedChild();
     driveToState(a.student.id, a.trip.id, 'on_bus');
     driveToState(b.student.id, b.trip.id, 'on_bus');
 
-    processPendingNotificationsForParent(a.parentUser);
-    processPendingNotificationsForParent(b.parentUser);
+    await processPendingNotificationsForParent(a.parentUser);
+    await processPendingNotificationsForParent(b.parentUser);
 
-    const viewsA = getNotificationsForParent(a.parentUser);
-    const viewsB = getNotificationsForParent(b.parentUser);
+    const viewsA = await getNotificationsForParent(a.parentUser);
+    const viewsB = await getNotificationsForParent(b.parentUser);
     expect(viewsA.every((n) => n.studentId === a.student.id)).toBe(true);
     expect(viewsB.every((n) => n.studentId === b.student.id)).toBe(true);
     expect(viewsA.some((n) => n.studentId === b.student.id)).toBe(false);
   });
 
-  it('Parent A cannot mark Parent B\'s notification as read by guessing its ID — 403', () => {
+  it('Parent A cannot mark Parent B\'s notification as read by guessing its ID — 403', async () => {
     const a = createFreshAuthorizedChild();
     const b = createFreshAuthorizedChild();
     driveToState(b.student.id, b.trip.id, 'on_bus');
-    processPendingNotificationsForParent(b.parentUser);
-    const bNotification = getNotificationsForParent(b.parentUser)[0];
+    await processPendingNotificationsForParent(b.parentUser);
+    const bNotification = (await getNotificationsForParent(b.parentUser))[0];
 
     expect(() => markNotificationRead(a.parentUser, bNotification.id)).toThrow(NotificationAccessDeniedError);
   });
@@ -302,10 +302,10 @@ describe('Recipient isolation — reuses ParentAccessService exclusively (spec �
     expect(() => markNotificationRead(parentUser, 'does-not-exist')).toThrow(NotificationNotFoundError);
   });
 
-  it('a user with no entry in the demo parent map gets zero notifications and zero unread count', () => {
+  it('a user with no entry in the demo parent map gets zero notifications and zero unread count', async () => {
     const admin = userRepository.findByEmail('admin@masara.om')!;
-    expect(getNotificationsForParent(admin).length).toBe(0);
-    expect(getUnreadCountForParent(admin)).toBe(0);
+    expect((await getNotificationsForParent(admin)).length).toBe(0);
+    expect(await getUnreadCountForParent(admin)).toBe(0);
   });
 });
 
@@ -314,27 +314,27 @@ describe('Recipient isolation — reuses ParentAccessService exclusively (spec �
 // ---------------------------------------------------------------------------
 
 describe('Priority + delivery, end to end through real Journey transitions', () => {
-  it('STUDENT_MISSED and JOURNEY_CANCELLED produce HIGH-priority, SENT notifications', () => {
+  it('STUDENT_MISSED and JOURNEY_CANCELLED produce HIGH-priority, SENT notifications', async () => {
     const missedFixture = createFreshAuthorizedChild();
     driveToState(missedFixture.student.id, missedFixture.trip.id, 'missed');
-    processPendingNotificationsForParent(missedFixture.parentUser);
-    const missedNotif = getNotificationsForParent(missedFixture.parentUser).find((n) => n.studentId === missedFixture.student.id)!;
+    await processPendingNotificationsForParent(missedFixture.parentUser);
+    const missedNotif = (await getNotificationsForParent(missedFixture.parentUser)).find((n) => n.studentId === missedFixture.student.id)!;
     expect(missedNotif.priority).toBe('HIGH');
     expect(missedNotif.status).toBe('SENT');
     expect(missedNotif.sentAt).not.toBeNull();
 
     const cancelledFixture = createFreshAuthorizedChild();
     driveToState(cancelledFixture.student.id, cancelledFixture.trip.id, 'cancelled');
-    processPendingNotificationsForParent(cancelledFixture.parentUser);
-    const cancelledNotif = getNotificationsForParent(cancelledFixture.parentUser).find((n) => n.studentId === cancelledFixture.student.id)!;
+    await processPendingNotificationsForParent(cancelledFixture.parentUser);
+    const cancelledNotif = (await getNotificationsForParent(cancelledFixture.parentUser)).find((n) => n.studentId === cancelledFixture.student.id)!;
     expect(cancelledNotif.priority).toBe('HIGH');
   });
 
-  it('JOURNEY_INCIDENT produces a CRITICAL-priority notification (the drive-to-incident path also passes through STUDENT_BOARDED, so this specifically finds the INCIDENT-category row, not just the first match)', () => {
+  it('JOURNEY_INCIDENT produces a CRITICAL-priority notification (the drive-to-incident path also passes through STUDENT_BOARDED, so this specifically finds the INCIDENT-category row, not just the first match)', async () => {
     const { parentUser, student, trip } = createFreshAuthorizedChild();
     driveToState(student.id, trip.id, 'incident');
-    processPendingNotificationsForParent(parentUser);
-    const notifs = getNotificationsForParent(parentUser).filter((n) => n.studentId === student.id);
+    await processPendingNotificationsForParent(parentUser);
+    const notifs = (await getNotificationsForParent(parentUser)).filter((n) => n.studentId === student.id);
     const incidentNotif = notifs.find((n) => n.category === 'INCIDENT')!;
     expect(incidentNotif).toBeDefined();
     expect(incidentNotif.priority).toBe('CRITICAL');
@@ -342,11 +342,11 @@ describe('Priority + delivery, end to end through real Journey transitions', () 
     expect(notifs.some((n) => n.category === 'BOARDING' && n.priority === 'NORMAL')).toBe(true);
   });
 
-  it('read state is separate from delivery status — a SENT notification starts with readAt null, then gets a readAt once marked read, status unchanged', () => {
+  it('read state is separate from delivery status — a SENT notification starts with readAt null, then gets a readAt once marked read, status unchanged', async () => {
     const { parentUser, student, trip } = createFreshAuthorizedChild();
     driveToState(student.id, trip.id, 'on_bus');
-    processPendingNotificationsForParent(parentUser);
-    const notif = getNotificationsForParent(parentUser).find((n) => n.studentId === student.id)!;
+    await processPendingNotificationsForParent(parentUser);
+    const notif = (await getNotificationsForParent(parentUser)).find((n) => n.studentId === student.id)!;
     expect(notif.status).toBe('SENT');
     expect(notif.readAt).toBeNull();
 
@@ -355,15 +355,15 @@ describe('Priority + delivery, end to end through real Journey transitions', () 
     expect(read.readAt).not.toBeNull();
   });
 
-  it('unread count decreases after marking a notification read', () => {
+  it('unread count decreases after marking a notification read', async () => {
     const { parentUser, student, trip } = createFreshAuthorizedChild();
     driveToState(student.id, trip.id, 'on_bus');
-    processPendingNotificationsForParent(parentUser);
-    const before = getUnreadCountForParent(parentUser);
+    await processPendingNotificationsForParent(parentUser);
+    const before = await getUnreadCountForParent(parentUser);
     expect(before).toBeGreaterThan(0);
-    const notif = getNotificationsForParent(parentUser).find((n) => n.studentId === student.id)!;
+    const notif = (await getNotificationsForParent(parentUser)).find((n) => n.studentId === student.id)!;
     markNotificationRead(parentUser, notif.id);
-    expect(getUnreadCountForParent(parentUser)).toBe(before - 1);
+    expect(await getUnreadCountForParent(parentUser)).toBe(before - 1);
   });
 });
 
@@ -372,11 +372,11 @@ describe('Priority + delivery, end to end through real Journey transitions', () 
 // ---------------------------------------------------------------------------
 
 describe('Content safety on the public NotificationView (spec §14/§23 mandatory)', () => {
-  it('the DTO never carries eventType, sourceEventId, journeyId, tripId, or failureReason', () => {
+  it('the DTO never carries eventType, sourceEventId, journeyId, tripId, or failureReason', async () => {
     const { parentUser, student, trip } = createFreshAuthorizedChild();
     driveToState(student.id, trip.id, 'on_bus');
-    processPendingNotificationsForParent(parentUser);
-    const notif = getNotificationsForParent(parentUser).find((n) => n.studentId === student.id)! as unknown as Record<string, unknown>;
+    await processPendingNotificationsForParent(parentUser);
+    const notif = (await getNotificationsForParent(parentUser)).find((n) => n.studentId === student.id)! as unknown as Record<string, unknown>;
     for (const forbiddenKey of ['eventType', 'sourceEventId', 'journeyId', 'tripId', 'failureReason', 'recipientUserId']) {
       expect(Object.prototype.hasOwnProperty.call(notif, forbiddenKey)).toBe(false);
     }
@@ -388,7 +388,7 @@ describe('Content safety on the public NotificationView (spec §14/§23 mandator
 // ---------------------------------------------------------------------------
 
 describe('Isolation — notification processing and reads touch nothing operational (spec §21/§27 mandatory)', () => {
-  it('journeys, trips, buses, students, routes, telemetry_observations, current_location_projection, recommendations, audit_logs are all unchanged', () => {
+  it('journeys, trips, buses, students, routes, telemetry_observations, current_location_projection, recommendations, audit_logs are all unchanged', async () => {
     const { parentUser, student, trip } = createFreshAuthorizedChild();
     driveToState(student.id, trip.id, 'on_bus');
 
@@ -404,10 +404,10 @@ describe('Isolation — notification processing and reads touch nothing operatio
       projection: JSON.stringify(currentLocationProjectionRepository.findAll()),
     };
 
-    processPendingNotificationsForParent(parentUser);
-    getNotificationsForParent(parentUser);
-    getUnreadCountForParent(parentUser);
-    const notif = getNotificationsForParent(parentUser).find((n) => n.studentId === student.id)!;
+    await processPendingNotificationsForParent(parentUser);
+    await getNotificationsForParent(parentUser);
+    await getUnreadCountForParent(parentUser);
+    const notif = (await getNotificationsForParent(parentUser)).find((n) => n.studentId === student.id)!;
     markNotificationRead(parentUser, notif.id);
 
     expect(auditRepository.findAll().length).toBe(before.auditCount);
@@ -433,7 +433,7 @@ describe('Source-scan governance guards (spec §28 mandatory) — Notification d
   const repoSource = fs.readFileSync(path.resolve(__dirname, '../../server/repositories/notificationRepository.ts'), 'utf8');
   const routesSource = fs.readFileSync(path.resolve(__dirname, '../../server/routes/parentRoutes.ts'), 'utf8');
   const forbiddenImports =
-    /from ['"].*\/(JourneyService|JourneyStateMachine|ActionExecutor|PolicyEngine|MasaraOperationsAgent|TelemetryIngestionService)['"]/;
+    /from ['"].*\/(JourneyService|JourneyStateMachine|ActionExecutor|PolicyEngine|MasaraOperationsAgent|PredictionEngine|TelemetryIngestionService|EtaService|ApprovalCenter)['"]/;
   const forbiddenAi = /(GoogleGenAI|generateContent|LLMProvider|MockProvider)/;
 
   it('NotificationService.ts imports no mutation module and no AI/LLM provider', () => {
