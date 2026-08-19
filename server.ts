@@ -19,11 +19,31 @@ import { telemetryRouter } from './server/routes/telemetryRoutes';
 import { etaRouter } from './server/routes/etaRoutes';
 import { parentRouter } from './server/routes/parentRoutes';
 import { contactRouter } from './server/routes/contactRoutes';
+import { hashPassword, verifyPassword } from './server/services/legacyAuthCredentials';
+import { db } from './database/client';
+import { schools as schoolsTable } from './database/schema';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(express.json());
+
+// Phase 6D — production-readiness hardening: an unhandled promise
+// rejection or a synchronous exception outside any request handler would
+// otherwise either crash the process silently (Node 15+ default for
+// unhandledRejection) or crash it with no clear log line — either way
+// taking down every user's session for one bug anywhere. Every known
+// async route handler in this codebase already has its own try/catch
+// (audited); this is a pure safety net, never a substitute for that.
+// Never logs request bodies, credentials, or secrets — only the error
+// itself.
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception — shutting down:', err);
+  process.exit(1);
+});
 
 // New governance-layer API (DB-backed: trips/predictions/recommendations/audit log).
 // Additive only — does not touch any of the in-memory routes below (Phase 1 scope).
@@ -53,17 +73,22 @@ let routes = [...INITIAL_ROUTES];
 let notifications = [...INITIAL_NOTIFICATIONS];
 let workflowSteps = [...INITIAL_WORKFLOW_STEPS];
 
-// User accounts in-memory database
+// User accounts in-memory database. Phase 6D: passwordHash, never
+// plaintext password — same scrypt+salt convention as the governed
+// `users` table's own passwordHash column (database/seed/seed.ts), now
+// actually enforced here via verifyPassword (it previously was not: this
+// legacy store never checked the governed column at all — see
+// server/services/authz.ts's join-by-email notes).
 let users = [
-  { id: 'u-1', name: 'أحمد بن سيف البوسعيدي', email: 'parent@masara.om', password: 'password123', role: 'parent' },
+  { id: 'u-1', name: 'أحمد بن سيف البوسعيدي', email: 'parent@masara.om', passwordHash: hashPassword('password123'), role: 'parent' },
   // Aligned with the governed Drizzle `users` row for driver1 (Journey Core,
   // Phase 3A) — same person, same name — so the legacy demo login resolves
   // to a real backend identity for the Driver Journey Console (Phase 3B).
   // admin@masara.om/school@masara.om already coincided between the two
   // stores by design; driver did not until this change.
-  { id: 'u-2', name: 'الكابتن سعيد بن حمد البوسعيدي', email: 'driver1@masara.om', password: 'password123', role: 'driver' },
-  { id: 'u-3', name: 'إدارة مدرسة المسار الدولية (مسقط)', email: 'school@masara.om', password: 'password123', role: 'school' },
-  { id: 'u-4', name: 'المشرف العام - مركز مسارَا الذكي', email: 'admin@masara.om', password: 'password123', role: 'admin' }
+  { id: 'u-2', name: 'الكابتن سعيد بن حمد البوسعيدي', email: 'driver1@masara.om', passwordHash: hashPassword('password123'), role: 'driver' },
+  { id: 'u-3', name: 'إدارة مدرسة المسار الدولية (مسقط)', email: 'school@masara.om', passwordHash: hashPassword('password123'), role: 'school' },
+  { id: 'u-4', name: 'المشرف العام - مركز مسارَا الذكي', email: 'admin@masara.om', passwordHash: hashPassword('password123'), role: 'admin' }
 ];
 
 // Gemini Client Lazy Initializer
@@ -106,10 +131,23 @@ async function generateContentWithFallback(ai: GoogleGenAI, params: { contents: 
 
 // ----------------- API ROUTES ----------------- //
 
+// Phase 6D — hardened to actually verify the database is reachable, not
+// just that the process is alive (spec "Health / Readiness"). A trivial,
+// bounded read against a real table — never raw SQL text, never a
+// connection string, never a stack trace in the response. `dbConnected`
+// lets an operator distinguish "server up, DB down" from a genuine 200.
 app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
+  let dbConnected = false;
+  try {
+    db.select().from(schoolsTable).limit(1).all();
+    dbConnected = true;
+  } catch (err) {
+    console.error('Health check: database unreachable:', err);
+  }
+  res.status(dbConnected ? 200 : 503).json({
+    status: dbConnected ? 'ok' : 'degraded',
     system: 'مَسارَا MASARA - AI School Transportation Backend',
+    dbConnected,
     timestamp: new Date().toISOString()
   });
 });
@@ -132,7 +170,7 @@ app.post('/api/auth/login', (req, res) => {
   const { email, password, role } = req.body;
   const user = users.find(u => u.email.toLowerCase() === email?.toLowerCase().trim());
 
-  if (!user || user.password !== password) {
+  if (!user || typeof password !== 'string' || !verifyPassword(password, user.passwordHash)) {
     return res.status(401).json({ success: false, error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' });
   }
 
@@ -163,7 +201,7 @@ app.post('/api/auth/register', (req, res) => {
     id: `usr-${Date.now()}`,
     name,
     email: email.trim(),
-    password,
+    passwordHash: hashPassword(password),
     role: role || 'parent'
   };
 

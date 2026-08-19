@@ -113,8 +113,16 @@ agentRouter.post('/api/recommendations/:id/request-review', (req, res) => {
   }
 });
 
+// Phase 6D — production-readiness audit: audit_logs is append-only and
+// grows without bound over a pilot's lifetime; this route (confirmed
+// unused by the frontend or any test — dead/orphaned since Phase 2A) had
+// no bound at all. Capped at the same 500-row ceiling
+// telemetryObservationRepository already uses, via the existing
+// findFiltered — auditRepository.findAll() itself is untouched (many
+// isolation-snapshot tests across every phase rely on its exact
+// unbounded semantics to compare full-table state).
 agentRouter.get('/api/audit-logs', (_req, res) => {
-  res.json(auditRepository.findAll());
+  res.json(auditRepository.findFiltered({ limit: 500 }));
 });
 
 // Thin read-only pass-throughs onto the governed (Drizzle-backed) trip/bus/
