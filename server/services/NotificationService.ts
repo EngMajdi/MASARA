@@ -7,6 +7,7 @@ import { notificationRepository } from '../repositories/notificationRepository';
 import { resolveAuthorizedStudents } from './ParentAccessService';
 import { isEligibleForNotification, resolveCategory, resolvePriority, formatNotificationContent } from './NotificationPolicy';
 import { deliverToAllChannels } from './NotificationDeliveryManager';
+import { resolveEmailAddress, resolveSmsAddress, resolvePushToken } from './ContactDeliveryResolution';
 import type { NotificationCategory, NotificationPriority, NotificationStatus, NotificationView } from '../domain/notificationContract';
 import type { GovernedUser } from './authz';
 
@@ -31,6 +32,13 @@ import type { GovernedUser } from './authz';
 // exists and is readable by the parent in-app the moment insertIfAbsent
 // creates its row, regardless of whether PUSH/SMS/EMAIL are configured,
 // reachable, or even attempted.
+//
+// Phase 6B adds one more read-only step between creation and delivery:
+// ContactDeliveryResolution resolves the actual address each external
+// channel is attempted against (a verified+enabled user_contact, or the
+// legacy users.email fallback for EMAIL specifically). This file still
+// creates and reads only notifications/audit_logs rows — contact
+// resolution never creates, verifies, or mutates a contact.
 
 export class NotificationNotFoundError extends Error {}
 export class NotificationAccessDeniedError extends Error {}
@@ -96,12 +104,25 @@ export function processPendingNotificationsForParent(parentUser: GovernedUser): 
       // Idempotency": delivery must operate on the same notification,
       // never trigger a second creation).
       if (createdId) {
+        // Phase 6B — recipient resolution now prefers the governed
+        // user_contacts model over raw users.email (see
+        // ContactDeliveryResolution.ts for the full precedence policy).
+        // This is a pure read: no contact row is created, mutated, or
+        // verified here — only an existing verified+enabled row (if any)
+        // is looked up.
+        const emailResolution = resolveEmailAddress(parentUser);
         deliverToAllChannels({
           notificationId: createdId,
           title: content.title,
           body: content.body,
           priority,
-          recipient: { userId: parentUser.id, email: parentUser.email, name: parentUser.name },
+          recipient: {
+            userId: parentUser.id,
+            email: emailResolution.address,
+            name: parentUser.name,
+            smsAddress: resolveSmsAddress(parentUser.id) ?? undefined,
+            pushToken: resolvePushToken(parentUser.id) ?? undefined,
+          },
         });
       }
     }

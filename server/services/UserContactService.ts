@@ -21,16 +21,18 @@ export class ContactAccessDeniedError extends Error {}
 export class DuplicateContactError extends Error {}
 export { ContactValidationError };
 
-type ContactRow = NonNullable<ReturnType<typeof userContactRepository.findById>>;
+export type ContactRow = NonNullable<ReturnType<typeof userContactRepository.findById>>;
 
-function requireOwnContact(user: GovernedUser, contactId: string): ContactRow {
+/** Exported for ContactVerificationService (Phase 6B) — the exact same ownership re-derivation, never duplicated. */
+export function requireOwnContact(user: GovernedUser, contactId: string): ContactRow {
   const row = userContactRepository.findById(contactId);
   if (!row) throw new ContactNotFoundError('جهة الاتصال غير موجودة.');
   if (row.userId !== user.id) throw new ContactAccessDeniedError('هذه جهة الاتصال لا تخص هذا الحساب.');
   return row;
 }
 
-function toView(row: ContactRow): ContactView {
+/** Exported for ContactVerificationService (Phase 6B) — the one ContactView shape, never redefined twice. */
+export function toView(row: ContactRow): ContactView {
   return {
     id: row.id,
     channel: row.channel as ContactChannel,
@@ -86,12 +88,19 @@ export function createContact(user: GovernedUser, input: { channel: unknown; val
  */
 export function updateContact(user: GovernedUser, contactId: string, input: { value?: unknown; enabled?: unknown }): ContactView {
   const row = requireOwnContact(user, contactId);
-  const changes: { value?: string; normalizedValue?: string; enabled?: boolean } = {};
+  const changes: { value?: string; normalizedValue?: string; enabled?: boolean; verifiedAt?: null; verificationCodeHash?: null; verificationExpiresAt?: null } = {};
 
   if (input.value !== undefined) {
     const { value, normalizedValue } = normalizeContactValue(row.channel as ContactChannel, input.value);
     changes.value = value;
     changes.normalizedValue = normalizedValue;
+    // Phase 6B: a verification only ever attests to the exact value it was
+    // issued for. Changing the address invalidates any prior verification
+    // and any in-flight challenge for the old value — never carry a
+    // "verified" flag over onto a value that was never actually verified.
+    changes.verifiedAt = null;
+    changes.verificationCodeHash = null;
+    changes.verificationExpiresAt = null;
   }
   if (input.enabled !== undefined) {
     if (typeof input.enabled !== 'boolean') {

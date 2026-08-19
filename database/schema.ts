@@ -517,10 +517,18 @@ export const notifications = sqliteTable(
 // the deterministic, channel-specific normalized form
 // (ContactNormalization.ts) used for the uniqueness constraint below and
 // for any future lookup — never re-derived ad hoc elsewhere.
-// `verifiedAt`/`enabled` are STATE fields only in this phase: no OTP, no
-// verification link, no client-controlled write path sets verifiedAt (spec
-// §8) — every write to it in this codebase is either NULL (default) or a
-// deliberate, documented seed-data exception.
+// `verifiedAt`/`enabled` are STATE fields: no client-controlled write path
+// ever sets verifiedAt directly (spec Phase 6A §8) — every write to it is
+// either NULL (default), a deliberate documented seed-data exception, or
+// (Phase 6B) ContactVerificationService.confirmVerification succeeding
+// against a real, unexpired, previously-requested challenge.
+// `verificationCodeHash`/`verificationExpiresAt` (Phase 6B) are that
+// challenge's server-only state: a scrypt+salt hash of a real random code
+// (same convention as deviceCredentials.ts), never the plaintext, never
+// returned by any API. Both are cleared the moment verification succeeds,
+// and both are reset to NULL whenever `value` changes (UserContactService
+// .updateContact) — a verification only ever attests to the exact value it
+// was issued for.
 export const userContacts = sqliteTable(
   'user_contacts',
   {
@@ -531,6 +539,8 @@ export const userContacts = sqliteTable(
     normalizedValue: text('normalized_value').notNull(),
     verifiedAt: integer('verified_at', { mode: 'timestamp' }),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    verificationCodeHash: text('verification_code_hash'),
+    verificationExpiresAt: integer('verification_expires_at', { mode: 'timestamp' }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

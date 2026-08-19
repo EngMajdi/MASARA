@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull } from 'drizzle-orm';
 import { db } from '../../database/client';
 import { userContacts } from '../../database/schema';
 import type { ContactChannel } from '../domain/contactContract';
@@ -26,6 +26,22 @@ export const userContactRepository = {
       .select()
       .from(userContacts)
       .where(and(eq(userContacts.userId, userId), eq(userContacts.channel, channel), eq(userContacts.normalizedValue, normalizedValue)))
+      .get(),
+  /**
+   * Phase 6B — the ONE query notification delivery resolution is allowed to
+   * read from. Only verified + enabled rows are ever eligible (spec "Core
+   * Rule"). Deterministic selection when more than one exists for the same
+   * (userId, channel) (spec "Channel Selection"): most recently verified
+   * wins, ties broken by most recently updated, then by id — never random,
+   * never "first found".
+   */
+  findEligibleForDelivery: (userId: string, channel: ContactChannel) =>
+    db
+      .select()
+      .from(userContacts)
+      .where(and(eq(userContacts.userId, userId), eq(userContacts.channel, channel), eq(userContacts.enabled, true), isNotNull(userContacts.verifiedAt)))
+      .orderBy(desc(userContacts.verifiedAt), desc(userContacts.updatedAt), asc(userContacts.id))
+      .limit(1)
       .get(),
   update: (id: string, changes: UserContactUpdate) => db.update(userContacts).set({ ...changes, updatedAt: new Date() }).where(eq(userContacts.id, id)).run(),
   delete: (id: string) => db.delete(userContacts).where(eq(userContacts.id, id)).run(),

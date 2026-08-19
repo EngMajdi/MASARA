@@ -7,20 +7,19 @@ import type { DeliveryResult, NotificationDeliveryPayload, NotificationDeliveryP
 // spec, a real vendor is never fabricated. This provider NEVER reports
 // SUCCESS; there is no real transport for it to succeed through.
 //
-// PHASE 5D SPECIFICALLY DID NOT UPGRADE THIS PROVIDER (unlike
-// EmailNotificationProvider, which gained real response/error
-// classification logic): a push token does not exist anywhere in this
-// schema — no column on `users`, no separate device-registration table —
-// so there is no recipient identifier a real push call could even address.
-// Adding one would mean inventing a new identity/device-registration
-// concept, which is explicitly out of scope (spec STOP condition: "the
-// required contact information does not exist and adding it would require
-// redesigning the identity model"). This provider stays at its Phase 5C
-// depth on purpose, not by oversight. It exists so a future real
-// PushNotificationProvider is a drop-in replacement for this exact file —
-// same `channel`, same `deliver(payload)` signature — without
-// NotificationService, NotificationDeliveryManager, NotificationPolicy, or
-// ParentAccessService changing at all.
+// Phase 6B update: a push token does not exist on `users` and never will
+// (no such column), but a parent can now register a verified PUSH
+// user_contact (Phase 6A/6B) — the actual device-registration concept the
+// header comment above used to say was out of scope. NotificationService
+// resolves a verified+enabled one into `payload.recipient.pushToken`; this
+// provider gates on its presence below. Even when a token IS available,
+// this deployment still has no real push vendor SDK to send it through,
+// so the outcome stays UNAVAILABLE either way — this provider stays at
+// its Phase 5C integration depth on purpose, not by oversight. It exists
+// so a future real PushNotificationProvider is a drop-in replacement for
+// this exact file — same `channel`, same `deliver(payload)` signature —
+// without NotificationService, NotificationDeliveryManager,
+// NotificationPolicy, or ParentAccessService changing at all.
 
 function isEnabled(): boolean {
   return process.env.NOTIFICATION_PUSH_ENABLED === 'true';
@@ -32,17 +31,21 @@ function hasCredentials(): boolean {
 
 export const PushNotificationProvider: NotificationDeliveryProvider = {
   channel: 'PUSH',
-  deliver(_payload: NotificationDeliveryPayload): DeliveryResult {
+  deliver(payload: NotificationDeliveryPayload): DeliveryResult {
     if (!isEnabled()) {
       return { outcome: 'SKIPPED', failureReason: 'قناة الإشعارات الفورية (Push) غير مُفعّلة.' };
     }
     if (!hasCredentials()) {
       return { outcome: 'UNAVAILABLE', failureReason: 'بيانات اعتماد مزود Push غير مُهيأة.' };
     }
-    // Reaching here means the channel is enabled and a credential is
-    // present, but this phase still integrates NO real push vendor SDK
-    // (spec: never call a fake HTTP endpoint, never fabricate delivery) —
-    // fails closed honestly rather than pretending a push was sent.
+    if (!payload.recipient.pushToken) {
+      return { outcome: 'UNAVAILABLE', failureReason: 'لا توجد جهة اتصال Push موثّقة ومفعّلة لهذا المستلم.' };
+    }
+    // Reaching here means the channel is enabled, a credential is
+    // present, and a real recipient token was resolved, but this phase
+    // still integrates NO real push vendor SDK (spec: never call a fake
+    // HTTP endpoint, never fabricate delivery) — fails closed honestly
+    // rather than pretending a push was sent.
     return { outcome: 'UNAVAILABLE', failureReason: 'لا يوجد تكامل فعلي مع مزود إشعارات Push بعد.' };
   },
 };

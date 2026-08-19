@@ -64,6 +64,13 @@
       "when": 1787079021355,
       "tag": "0008_goofy_leader",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1787121478443,
+      "tag": "0009_pretty_stone_men",
+      "breakpoints": true
     }
   ]
 }

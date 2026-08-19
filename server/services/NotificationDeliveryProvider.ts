@@ -56,18 +56,28 @@ export function sanitizeProviderErrorMessage(raw: string): string {
 /**
  * Exactly the already-deterministic content NotificationPolicy produced —
  * a provider receives this payload verbatim and can never alter it, never
- * regenerate it, never call an LLM. `recipient` carries only what the
- * governed `users` table already has (id/email/name) — no phone number or
- * push token exists anywhere in this schema, so a provider that needed one
- * would have nothing to send to; that is itself part of why PUSH/SMS remain
- * honest UNAVAILABLE boundaries in this phase rather than real integrations.
+ * regenerate it, never call an LLM.
+ *
+ * `recipient.email` (Phase 6B): resolved by NotificationService via
+ * ContactDeliveryResolution — a verified+enabled EMAIL user_contact when
+ * one exists, otherwise the pre-existing `users.email` fallback (see
+ * ContactDeliveryResolution.ts's "LEGACY EMAIL FALLBACK POLICY").
+ *
+ * `recipient.smsAddress`/`pushToken` (Phase 6B): resolved the same way,
+ * from a verified+enabled SMS/PUSH user_contact — `undefined` when no
+ * such contact exists, since `users` still has no phone/push-token column
+ * of its own to fall back to. A provider seeing `undefined` here has
+ * nothing to send to, which is itself part of why SMS/PUSH remain honest
+ * UNAVAILABLE boundaries rather than real integrations even once a
+ * contact address exists (no vendor is connected — see each provider's
+ * own header comment).
  */
 export interface NotificationDeliveryPayload {
   notificationId: string;
   title: string;
   body: string;
   priority: NotificationPriority;
-  recipient: { userId: string; email: string; name: string };
+  recipient: { userId: string; email: string; name: string; smsAddress?: string; pushToken?: string };
 }
 
 export interface NotificationDeliveryProvider {
