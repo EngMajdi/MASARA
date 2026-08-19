@@ -36,7 +36,17 @@ function handleExecutorError(err: unknown, res: import('express').Response) {
   return res.status(500).json({ error: 'حدث خطأ غير متوقع أثناء معالجة الطلب.' });
 }
 
+// Phase 7C — production-readiness audit: this route had no authorization at
+// all (any unauthenticated caller could trigger a governed agent run for any
+// trip). Reuses the exact same requireOperationalUser guard every other
+// admin/school-only route in this file already uses — no new mechanism.
+// No existing test or frontend caller was found exercising this route over
+// HTTP (all existing tests call runForTrip directly), so this is a pure
+// hardening addition with zero blast radius on existing behavior.
 agentRouter.post('/api/agent/run', async (req, res) => {
+  const guard = requireOperationalUser(req.body?.userEmail);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
   try {
     const { tripId } = req.body;
     if (!tripId) return res.status(400).json({ error: 'tripId مطلوب.' });

@@ -11,6 +11,7 @@ import { getLLMProvider } from './llm';
 import { safeParseStructuredRecommendation } from './llm/recommendationSchema';
 import { evaluateRecommendation } from '../services/PolicyEngine';
 import { cancelRecommendation } from '../services/ActionExecutor';
+import { createSafetyFindingRecommendation, type SafetyRecommendationOutcome } from './SafetyFindingRecommendationAdapter';
 
 export type AgentRunStatus = 'pending_approval' | 'no_action' | 'policy_rejected';
 
@@ -20,12 +21,18 @@ export interface AgentRunResult {
   recommendationId: string | null;
   status: AgentRunStatus;
   reason?: string;
+  // Phase 7C — independent of the LLM-authored recommendation above. Optional
+  // so existing consumers reading only the original fields are unaffected.
+  safetyRecommendationId?: string | null;
+  safetyRecommendationOutcome?: SafetyRecommendationOutcome;
 }
 
 // How long a pending recommendation stays actionable before it's considered
 // stale (spec §19) — an operational recommendation from 15 minutes ago is no
-// longer trustworthy against live traffic/trip conditions.
-const APPROVAL_WINDOW_MINUTES = 15;
+// longer trustworthy against live traffic/trip conditions. Exported so
+// Phase 7C's SafetyFindingRecommendationAdapter reuses the exact same
+// window instead of duplicating the constant.
+export const APPROVAL_WINDOW_MINUTES = 15;
 
 // Incident types severe enough to force CRITICAL risk regardless of ETA math —
 // a safety event outranks a delay probability (spec §7 policy table).
@@ -54,6 +61,18 @@ export async function runForTrip(tripId: string): Promise<AgentRunResult> {
   for (const stale of recommendationRepository.findPendingByTripId(tripId)) {
     cancelRecommendation(stale.id, `Superseded by new agent run ${agentRunId}`);
   }
+
+  // Phase 7C — independent deterministic lane: if a currently-valid Phase 7B
+  // SafetyFinding exists for this trip, turn it into a governed
+  // recommendation. No LLM involved, no effect on the LLM-authored
+  // recommendation logic below. Relies on the cancellation loop just above
+  // for dedup — never stacks more than one pending safety recommendation
+  // per trip across repeated runs.
+  const safetyResult = createSafetyFindingRecommendation(
+    tripId,
+    agentRunId,
+    new Date(Date.now() + APPROVAL_WINDOW_MINUTES * 60_000)
+  );
 
   // 1. Predict — deterministic, not LLM-derived.
   const prediction = predictDelay({
@@ -163,7 +182,14 @@ export async function runForTrip(tripId: string): Promise<AgentRunResult> {
       predictionId: predictionRow.id,
       operatorDecision: 'no_action',
     });
-    return { agentRunId, predictionId: predictionRow.id, recommendationId: null, status: 'no_action' };
+    return {
+      agentRunId,
+      predictionId: predictionRow.id,
+      recommendationId: null,
+      status: 'no_action',
+      safetyRecommendationId: safetyResult.recommendationId,
+      safetyRecommendationOutcome: safetyResult.outcome,
+    };
   }
 
   // 5. Policy check — decides whether this is even allowed to reach a human.
@@ -216,6 +242,8 @@ export async function runForTrip(tripId: string): Promise<AgentRunResult> {
       recommendationId: rejectedRow.id,
       status: 'policy_rejected',
       reason: policyResult.reason,
+      safetyRecommendationId: safetyResult.recommendationId,
+      safetyRecommendationOutcome: safetyResult.outcome,
     };
   }
 
@@ -244,6 +272,8 @@ export async function runForTrip(tripId: string): Promise<AgentRunResult> {
     predictionId: predictionRow.id,
     recommendationId: recommendationRow.id,
     status: 'pending_approval',
+    safetyRecommendationId: safetyResult.recommendationId,
+    safetyRecommendationOutcome: safetyResult.outcome,
   };
 }
 
