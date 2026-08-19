@@ -17,6 +17,7 @@ import { gpsSimulationRouter } from './server/routes/gpsSimulationRoutes';
 import { deviceRouter } from './server/routes/deviceRoutes';
 import { telemetryRouter } from './server/routes/telemetryRoutes';
 import { etaRouter } from './server/routes/etaRoutes';
+import { safetyFindingRouter } from './server/routes/safetyFindingRoutes';
 import { parentRouter } from './server/routes/parentRoutes';
 import { contactRouter } from './server/routes/contactRoutes';
 import { hashPassword, verifyPassword } from './server/services/legacyAuthCredentials';
@@ -63,6 +64,8 @@ app.use(deviceRouter);
 app.use(telemetryRouter);
 // Phase 4D: ETA Intelligence — likewise additive.
 app.use(etaRouter);
+// Phase 7B: Predictive Safety Intelligence (Evidence -> Finding only) — likewise additive, read-only.
+app.use(safetyFindingRouter);
 // Phase 5A: Parent Trust Read Model — likewise additive, read-only.
 app.use(parentRouter);
 // Phase 6A: Identity & Contact Foundation — likewise additive, self-service only.
