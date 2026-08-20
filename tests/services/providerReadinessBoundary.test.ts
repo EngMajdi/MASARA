@@ -7,6 +7,14 @@ import path from 'node:path';
 // vendor SDK, credential, or configuration exists anywhere in this
 // repository or its deployment. No provider code was written this phase.
 //
+// Phase 7F re-ran the same discovery specifically for EMAIL (the one
+// channel it was scoped to integrate) and found nothing has changed: still
+// no vendor SDK, still no credential, and — the one genuinely new fact this
+// phase's audit surfaced — still no verified sender/from address either
+// (EMAIL_FROM_ADDRESS is not documented or set anywhere). STOP triggered
+// again; no provider adapter code was written. The extra checks below
+// extend, not duplicate, the Phase 7E coverage above.
+//
 // These tests exist to make that STOP condition itself a durable,
 // regression-tested fact rather than a one-time audit note that silently
 // goes stale. If a future phase adds real credentials/SDK without also
@@ -62,13 +70,28 @@ describe('Phase 7E — no real provider credential exists in this process or rep
       'EMAIL_PROVIDER_BASE_URL',
       'SMS_PROVIDER_BASE_URL',
       'PUSH_PROVIDER_BASE_URL',
+      'EMAIL_FROM_ADDRESS',
       'SENDGRID_API_KEY',
       'TWILIO_AUTH_TOKEN',
       'TWILIO_ACCOUNT_SID',
+      'RESEND_API_KEY',
+      'POSTMARK_API_TOKEN',
+      'MAILGUN_API_KEY',
+      'AWS_ACCESS_KEY_ID',
+      'AWS_SECRET_ACCESS_KEY',
+      'SMTP_HOST',
+      'SMTP_USER',
+      'SMTP_PASS',
     ];
     for (const name of credentialVarNames) {
       expect(process.env[name] ?? '').toBe('');
     }
+  });
+
+  it('no verified sender/from address is configured anywhere (Phase 7F: real delivery additionally requires a sender identity, which also does not exist)', () => {
+    const envExample = fs.readFileSync(path.join(repoRoot, '.env.example'), 'utf8');
+    expect(process.env.EMAIL_FROM_ADDRESS ?? '').toBe('');
+    expect(envExample).not.toMatch(/EMAIL_FROM_ADDRESS=".+"/); // absent entirely, or empty placeholder only — never a real-looking address
   });
 
   it('no .env file exists at the repository root (only .env.example, which must stay placeholder-only)', () => {
