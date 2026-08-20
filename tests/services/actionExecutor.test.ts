@@ -57,7 +57,7 @@ function makeRecommendation(overrides: Partial<Parameters<typeof recommendationR
 }
 
 describe('ActionExecutor — approve (execute + verify)', () => {
-  it('approving a CHANGE_ROUTE recommendation mutates the trip, verifies success, and reaches "verified"', () => {
+  it('approving a CHANGE_ROUTE recommendation mutates the trip, verifies success, and reaches "verified"', async () => {
     const trip = findActiveTrip();
     const bus = busRepository.findById(trip.busId)!;
     const currentRoute = routeRepository.findById(trip.routeId)!;
@@ -72,7 +72,7 @@ describe('ActionExecutor — approve (execute + verify)', () => {
     const rec = makeRecommendation({ tripId: trip.id, action: 'CHANGE_ROUTE', targetId: altRoute.id });
 
     const auditCountBefore = auditRepository.findAll().length;
-    const result = approveRecommendation(rec.id, admin.id);
+    const result = await approveRecommendation(rec.id, admin.id);
 
     expect(result.recommendation.status).toBe('verified');
     expect(result.action!.actionType).toBe('CHANGE_ROUTE');
@@ -86,31 +86,55 @@ describe('ActionExecutor — approve (execute + verify)', () => {
     expect(auditRepository.findAll().length).toBe(auditCountBefore + 5);
   });
 
-  it('an approved NOTIFY_SCHOOL recommendation executes and verifies as success without mutating the trip route', () => {
+  it('an approved NOTIFY_SCHOOL recommendation executes, resolves the school recipient, and verifies honestly (partial_success — no vendor configured in this deployment) without mutating the trip route', async () => {
     const trip = findActiveTrip();
+    const bus = busRepository.findById(trip.busId)!;
     const admin = findAdmin();
-    const rec = makeRecommendation({ tripId: trip.id, action: 'NOTIFY_SCHOOL', targetId: trip.id });
+    const rec = makeRecommendation({ tripId: trip.id, busId: bus.id, action: 'NOTIFY_SCHOOL', targetId: trip.id });
 
-    const result = approveRecommendation(rec.id, admin.id);
+    const result = await approveRecommendation(rec.id, admin.id);
 
     expect(result.recommendation.status).toBe('verified');
-    expect(result.verification!.status).toBe('success');
+    // Never a fabricated 'success' — a real school recipient was resolved
+    // and every channel was honestly attempted, but no vendor is
+    // configured in this deployment (unchanged since Phase 5C/5D/6C), so
+    // the honest outcome is partial_success, not success.
+    expect(result.verification!.status).toBe('partial_success');
     expect(tripRepository.findById(trip.id)!.routeId).toBe(trip.routeId);
+
+    const payload = JSON.parse(result.action!.payload) as { notified: boolean; recipientUserId: string | null; channelResults: Array<{ channel: string; outcome: string }> };
+    expect(payload.notified).toBe(true);
+    expect(payload.recipientUserId).toBeTruthy();
+    expect(payload.channelResults.map((r) => r.channel).sort()).toEqual(['EMAIL', 'PUSH', 'SMS']);
+    expect(payload.channelResults.every((r) => r.outcome !== 'SUCCESS')).toBe(true); // honest — no vendor configured
   });
 
-  it('cannot approve the same recommendation twice', () => {
-    // approveRecommendation runs fully synchronously through
-    // pending->approved->executed->verified in one call, so by the time a
-    // second call runs, the row is already terminal ('verified') — caught by
-    // the state-machine check as RecommendationStateError. ConflictError is
-    // reserved for the narrower read-then-write race *within* a single call;
-    // see 'claimTransition is atomic' below for a direct test of that guard.
+  it('a NOTIFY_SCHOOL recommendation with no resolvable bus/school recipient verifies as failed, honestly — never a fabricated success', async () => {
+    const trip = findActiveTrip();
+    const admin = findAdmin();
+    const rec = makeRecommendation({ tripId: trip.id, action: 'NOTIFY_SCHOOL', targetId: trip.id }); // no busId
+
+    const result = await approveRecommendation(rec.id, admin.id);
+
+    expect(result.recommendation.status).toBe('verified');
+    expect(result.verification!.status).toBe('failed');
+    const payload = JSON.parse(result.action!.payload) as { notified: boolean };
+    expect(payload.notified).toBe(false);
+  });
+
+  it('cannot approve the same recommendation twice', async () => {
+    // approveRecommendation runs through pending->approved->executed->verified
+    // in one call, so by the time a second call runs, the row is already
+    // terminal ('verified') — caught by the state-machine check as
+    // RecommendationStateError. ConflictError is reserved for the narrower
+    // read-then-write race *within* a single call; see 'claimTransition is
+    // atomic' below for a direct test of that guard.
     const trip = findActiveTrip();
     const admin = findAdmin();
     const rec = makeRecommendation({ tripId: trip.id });
 
-    approveRecommendation(rec.id, admin.id);
-    expect(() => approveRecommendation(rec.id, admin.id)).toThrow();
+    await approveRecommendation(rec.id, admin.id);
+    await expect(approveRecommendation(rec.id, admin.id)).rejects.toThrow();
     expect(recommendationRepository.findById(rec.id)!.status).toBe('verified');
   });
 
@@ -126,24 +150,24 @@ describe('ActionExecutor — approve (execute + verify)', () => {
     expect(recommendationRepository.findById(rec.id)!.status).toBe('approved');
   });
 
-  it('a policy-invalid recommendation (missing target route) is refused at approval time', () => {
+  it('a policy-invalid recommendation (missing target route) is refused at approval time', async () => {
     const trip = findActiveTrip();
     const admin = findAdmin();
     const rec = makeRecommendation({ tripId: trip.id, action: 'CHANGE_ROUTE', targetId: 'route-does-not-exist' });
-    expect(() => approveRecommendation(rec.id, admin.id)).toThrow();
+    await expect(approveRecommendation(rec.id, admin.id)).rejects.toThrow();
     expect(recommendationRepository.findById(rec.id)!.status).toBe('pending');
   });
 
-  it('an expired pending recommendation cannot be approved, and is transitioned to expired', () => {
+  it('an expired pending recommendation cannot be approved, and is transitioned to expired', async () => {
     const trip = findActiveTrip();
     const admin = findAdmin();
     const rec = makeRecommendation({ tripId: trip.id, expiresAt: new Date(Date.now() - 60_000) });
 
-    expect(() => approveRecommendation(rec.id, admin.id)).toThrow(RecommendationExpiredError);
+    await expect(approveRecommendation(rec.id, admin.id)).rejects.toThrow(RecommendationExpiredError);
     expect(recommendationRepository.findById(rec.id)!.status).toBe('expired');
   });
 
-  it('execution failure lands the recommendation on execution_failed, not executed/verified', () => {
+  it('execution failure lands the recommendation on execution_failed, not executed/verified', async () => {
     const trip = findActiveTrip();
     const admin = findAdmin();
     const rec = makeRecommendation({ tripId: trip.id, action: 'NOTIFY_SCHOOL', targetId: trip.id });
@@ -159,7 +183,7 @@ describe('ActionExecutor — approve (execute + verify)', () => {
       return callCount === 2 ? undefined : realFindById(id);
     });
 
-    const result = approveRecommendation(rec.id, admin.id);
+    const result = await approveRecommendation(rec.id, admin.id);
     spy.mockRestore();
 
     expect(result.action).toBeNull();

@@ -96,7 +96,7 @@ describe('MasaraOperationsAgent + ActionExecutor — end-to-end approval flow (A
     const auditBeforeApproval = auditRepository.findByRecommendationId(agentResult.recommendationId!).length;
     expect(auditBeforeApproval).toBeGreaterThan(0); // RECOMMENDATION_CREATED already logged
 
-    const approval = approveRecommendation(agentResult.recommendationId!, admin.id);
+    const approval = await approveRecommendation(agentResult.recommendationId!, admin.id);
     expect(['verified', 'execution_failed', 'verification_failed']).toContain(approval.recommendation.status);
     expect(approval.recommendation.status).toBe('verified');
     expect(approval.verification).toBeTruthy();

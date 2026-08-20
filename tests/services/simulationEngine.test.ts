@@ -88,7 +88,7 @@ describe('SimulationEngine — real domain services, no fake results (spec Phase
 
     // Approve through the REAL ActionExecutor — the only sanctioned path.
     const admin = findAdmin();
-    approveRecommendation(before.recommendationId!, admin.id);
+    await approveRecommendation(before.recommendationId!, admin.id);
 
     const resolveResult = await advanceSimulation(session.id); // now resolves + finalizes
     expect(resolveResult.waitingForApproval).toBe(false);

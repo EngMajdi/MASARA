@@ -6,6 +6,8 @@ import { actionVerificationRepository } from '../repositories/actionVerification
 import { auditRepository } from '../repositories/auditRepository';
 import { evaluateRecommendation, isExpired } from './PolicyEngine';
 import { canTransition, type RecommendationStatus } from '../domain/StateMachine';
+import { notifySchoolOfSignificantDelay, type SchoolNotificationOutcome } from './SchoolRecommendationNotifier';
+import type { NotificationPriority } from '../domain/notificationContract';
 
 // The ONLY component allowed to mutate trip/route state as a consequence of an
 // AI recommendation, and only after a human has approved it (spec §10/§29).
@@ -65,7 +67,15 @@ function expireIfPastDue(rec: RecommendationRow): boolean {
   return true;
 }
 
-function executeApprovedAction(rec: RecommendationRow, actorId: string) {
+/** Reuses the exact NotificationPriority vocabulary already defined in notificationContract.ts — no new vocabulary. */
+const SEVERITY_TO_NOTIFICATION_PRIORITY: Record<string, NotificationPriority> = {
+  low: 'LOW',
+  medium: 'NORMAL',
+  high: 'HIGH',
+  critical: 'CRITICAL',
+};
+
+async function executeApprovedAction(rec: RecommendationRow, actorId: string) {
   logEvent(rec, 'ACTION_STARTED', { actorType: 'system', previousState: 'approved', newState: 'approved' });
 
   try {
@@ -75,6 +85,7 @@ function executeApprovedAction(rec: RecommendationRow, actorId: string) {
     const etaBefore = trip.currentEtaAt;
     let etaAfter = etaBefore;
     const payload: Record<string, unknown> = {};
+    let schoolNotification: SchoolNotificationOutcome | undefined;
 
     if (rec.action === 'CHANGE_ROUTE' && rec.targetId) {
       const targetRoute = routeRepository.findById(rec.targetId);
@@ -97,7 +108,22 @@ function executeApprovedAction(rec: RecommendationRow, actorId: string) {
       payload.routeId = targetRoute.id;
       payload.routeName = targetRoute.name;
     } else if (rec.action === 'NOTIFY_SCHOOL') {
-      payload.notified = true;
+      // Phase 7D — a real call into the existing notification delivery
+      // boundary (SchoolRecommendationNotifier -> the same provider/contact
+      // primitives Phase 5C/5D/6B/6C already built), replacing the previous
+      // purely informational `{notified: true}` placeholder. Content is
+      // entirely server-derived from the already-approved recommendation
+      // row (rec.title/rec.problem) — never regenerated, never client-supplied.
+      schoolNotification = await notifySchoolOfSignificantDelay({
+        busId: rec.busId,
+        recommendationId: rec.id,
+        title: rec.title,
+        body: rec.problem,
+        priority: SEVERITY_TO_NOTIFICATION_PRIORITY[rec.severity] ?? 'NORMAL',
+      });
+      payload.notified = schoolNotification.attempted;
+      payload.recipientUserId = schoolNotification.recipientUserId;
+      payload.channelResults = schoolNotification.channelResults;
     } else if (rec.action === 'FLAG_INCIDENT') {
       payload.flagged = true;
     }
@@ -114,7 +140,7 @@ function executeApprovedAction(rec: RecommendationRow, actorId: string) {
     if (!claimed) throw new Error('تعذر تسجيل حالة التنفيذ للتوصية.');
 
     logEvent(rec, 'ACTION_COMPLETED', { previousState: 'approved', newState: 'executed', metadata: payload });
-    return { success: true as const, action, etaBefore: etaBefore ?? null, etaAfter: etaAfter ?? null };
+    return { success: true as const, action, etaBefore: etaBefore ?? null, etaAfter: etaAfter ?? null, schoolNotification };
   } catch (err) {
     recommendationRepository.claimTransition(rec.id, 'approved', 'execution_failed');
     logEvent(rec, 'ACTION_FAILED', {
@@ -128,17 +154,31 @@ function executeApprovedAction(rec: RecommendationRow, actorId: string) {
 
 function verifyExecutedAction(
   rec: RecommendationRow,
-  execution: { action: ReturnType<typeof actionRepository.create>; etaBefore: Date | null; etaAfter: Date | null }
+  execution: {
+    action: ReturnType<typeof actionRepository.create>;
+    etaBefore: Date | null;
+    etaAfter: Date | null;
+    schoolNotification?: SchoolNotificationOutcome;
+  }
 ) {
   logEvent(rec, 'VERIFICATION_STARTED', { previousState: 'executed', newState: 'executed' });
 
   try {
-    const { action, etaBefore, etaAfter } = execution;
+    const { action, etaBefore, etaAfter, schoolNotification } = execution;
     const improvementMins =
       etaBefore && etaAfter ? Math.round((etaBefore.getTime() - etaAfter.getTime()) / 60_000) : null;
 
     // SUCCESS / PARTIAL_SUCCESS / FAILED (spec §14) — the outcome quality is
     // separate from whether the verification process itself could run at all.
+    //
+    // NOTIFY_SCHOOL (Phase 7D): reflects the REAL delivery outcome, never a
+    // blanket "success" — 'success' only if a real channel actually
+    // delivered; 'partial_success' when the recipient was correctly
+    // resolved and every provider was honestly attempted but none could
+    // achieve real delivery (no vendor configured — the current state of
+    // every channel in this deployment, exactly as already true for parent
+    // notifications); 'failed' when no school recipient could even be
+    // resolved (nothing to attempt at all).
     const status =
       rec.action === 'CHANGE_ROUTE'
         ? improvementMins !== null && improvementMins > 0
@@ -146,7 +186,13 @@ function verifyExecutedAction(
           : improvementMins === 0
             ? 'partial_success'
             : 'failed'
-        : 'success'; // informational actions verify as successful once recorded
+        : rec.action === 'NOTIFY_SCHOOL'
+          ? !schoolNotification || !schoolNotification.attempted
+            ? 'failed'
+            : schoolNotification.channelResults.some((r) => r.outcome === 'SUCCESS')
+              ? 'success'
+              : 'partial_success'
+          : 'success'; // FLAG_INCIDENT and any other informational action verify as successful once recorded — unchanged
 
     const verification = actionVerificationRepository.create({
       actionId: action.id,
@@ -176,7 +222,7 @@ function verifyExecutedAction(
   }
 }
 
-export function approveRecommendation(recommendationId: string, approvedByUserId: string) {
+export async function approveRecommendation(recommendationId: string, approvedByUserId: string) {
   const rec = recommendationRepository.findById(recommendationId);
   if (!rec) throw new RecommendationStateError('التوصية غير موجودة.');
 
@@ -213,7 +259,7 @@ export function approveRecommendation(recommendationId: string, approvedByUserId
   });
 
   const approvedRec = recommendationRepository.findById(rec.id)!;
-  const executionResult = executeApprovedAction(approvedRec, approvedByUserId);
+  const executionResult = await executeApprovedAction(approvedRec, approvedByUserId);
 
   if (!executionResult.success) {
     return {

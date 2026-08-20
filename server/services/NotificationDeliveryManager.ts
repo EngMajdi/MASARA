@@ -47,13 +47,15 @@ export interface ChannelDeliveryResult extends DeliveryResult {
  * header comment for why) — the caller (NotificationService) now awaits
  * this.
  *
- * `providers` defaults to the real 4-provider list and is never overridden
- * in production code anywhere in this repository — the parameter exists
- * solely so tests can exercise the try/catch resilience path with a
- * test-local fake provider (spec: "tests may use a controlled fake
- * provider, but production code must distinguish FAKE_TEST_PROVIDER from
- * REAL_PROVIDER" — the fake never lives in this file or any other
- * production module, only inline in the test that needs it).
+ * `providers` defaults to the real 4-provider list. Tests override it with
+ * a test-local fake provider to exercise the try/catch resilience path
+ * (spec: "tests may use a controlled fake provider, but production code
+ * must distinguish FAKE_TEST_PROVIDER from REAL_PROVIDER" — the fake never
+ * lives in this file or any other production module, only inline in the
+ * test that needs it). Phase 7D is the first production override: school
+ * recommendation notifications (SchoolRecommendationNotifier.ts) pass the
+ * real EMAIL/SMS/PUSH providers only, deliberately excluding IN_APP — see
+ * that file's header comment for why.
  */
 export async function deliverToAllChannels(
   payload: NotificationDeliveryPayload,

@@ -103,12 +103,12 @@ agentRouter.get('/api/recommendations/:id/verification', (req, res) => {
   res.json(verifications[0] ?? null);
 });
 
-agentRouter.post('/api/recommendations/:id/approve', (req, res) => {
+agentRouter.post('/api/recommendations/:id/approve', async (req, res) => {
   const guard = requireOperationalUser(req.body?.userEmail);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
 
   try {
-    const result = approveRecommendation(req.params.id, guard.user.id);
+    const result = await approveRecommendation(req.params.id, guard.user.id);
     res.json({ success: true, ...result });
   } catch (err) {
     handleExecutorError(err, res);
