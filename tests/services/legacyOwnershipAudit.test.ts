@@ -186,3 +186,66 @@ describe('Phase 7I — KNOWN LIMITATION, honestly proven, not hidden: cross-reso
     expect(authzSource).toMatch(/LEGACY_ANY_ROLE = \['admin', 'school', 'driver', 'parent'\]/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 7J re-audit — same objective (persist a real driver->bus and
+// parent->student relationship, enforce it server-side), one level more
+// specific than Phase 7I's finding: even setting the missing-relationship
+// problem aside, the RESOURCES THEMSELVES are not persisted at all.
+//
+// server.ts's `let buses = [...INITIAL_BUSES]` and
+// `let students = [...INITIAL_STUDENTS]` are still plain, process-local,
+// in-memory arrays — confirmed unchanged. There is no `legacy_buses` or
+// `legacy_students` SQLite table (database/schema.ts's `buses`/`students`
+// exports are the GOVERNED Journey Core tables — a different store
+// entirely, same naming collision already documented for `users` vs
+// `legacy_users`). Persisting a driverId/parentId FK column would require
+// a column on a table that does not exist; the honest additive migration
+// this phase could safely make (one new column) is not actually available
+// without first persisting the entire legacy bus/student resource model —
+// a data-layer redesign explicitly out of scope, per the phase's own STOP
+// condition ("if buses/students remain in-memory-only data structures,
+// STOP... do not silently redesign the data layer").
+//
+// No ownership code was added. This block exists so the STOP's factual
+// basis stays durable and testable, exactly like the block above.
+// ---------------------------------------------------------------------------
+
+describe('Phase 7J — STOP condition evidence: legacy buses/students remain in-memory-only, not persisted', () => {
+  it('server.ts still declares buses/students as plain in-memory arrays, not backed by any repository', () => {
+    const serverSource = fs.readFileSync(path.resolve(__dirname, '../../server.ts'), 'utf8');
+    expect(serverSource).toMatch(/let buses = \[\.\.\.INITIAL_BUSES\]/);
+    expect(serverSource).toMatch(/let students = \[\.\.\.INITIAL_STUDENTS\]/);
+  });
+
+  it('no legacy_buses or legacy_students table exists in the schema — only the unrelated, GOVERNED Journey Core buses/students tables do', () => {
+    const schemaSource = fs.readFileSync(path.resolve(__dirname, '../../database/schema.ts'), 'utf8');
+    expect(schemaSource).not.toMatch(/export const legacyBuses/);
+    expect(schemaSource).not.toMatch(/export const legacyStudents/);
+    // The governed tables exist (Journey Core, Phase 3A+) — confirming the
+    // collision is real, not a naming coincidence being missed.
+    expect(schemaSource).toMatch(/export const buses = sqliteTable\('buses'/);
+    expect(schemaSource).toMatch(/export const students = sqliteTable\('students'/);
+  });
+
+  it('the Bus TypeScript contract has no driverId field — only display-only driverName/driverPhone/driverAvatar', () => {
+    const typesSource = fs.readFileSync(path.resolve(__dirname, '../../src/types.ts'), 'utf8');
+    const start = typesSource.indexOf('export interface Bus');
+    const block = typesSource.slice(start, typesSource.indexOf('}', start));
+    expect(block).not.toMatch(/driverId/);
+    expect(block).toMatch(/driverName/);
+  });
+
+  it('no legacy repository or side-table maps a driver/parent identity to a bus/student — only the unrelated governed tripRepository.findByDriverId exists (Journey Core, not the legacy surface)', () => {
+    const repoDir = path.resolve(__dirname, '../../server/repositories');
+    const files = fs.readdirSync(repoDir).filter((f) => f.endsWith('.ts'));
+    const matches: string[] = [];
+    for (const f of files) {
+      const source = fs.readFileSync(path.join(repoDir, f), 'utf8');
+      if (/\b(driverId|parentId)\b/.test(source)) matches.push(f);
+    }
+    // Only tripRepository (governed Journey Core) is expected to reference
+    // driverId; nothing legacy-surface-related should.
+    expect(matches).toEqual(['tripRepository.ts']);
+  });
+});
