@@ -63,7 +63,12 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({
   onUpdateStatus,
   currentUser
 }) => {
-  const parentStudents = students.filter((s) => s.parentId === 'par-1');
+  // Phase 7K — students.parentId is now a real, persisted FK to the
+  // logged-in legacy user's id (previously a hardcoded 'par-1' literal
+  // that matched no real account at all — see legacyOwnershipAudit.test.ts
+  // for that prior, now-closed finding). Session-derived, never a body/URL
+  // value the client could spoof.
+  const parentStudents = students.filter((s) => s.parentId === currentUser?.id);
   const [selectedStudentId, setSelectedStudentId] = useState<string>(
     parentStudents[0]?.id || students[0]?.id || 'std-1'
   );

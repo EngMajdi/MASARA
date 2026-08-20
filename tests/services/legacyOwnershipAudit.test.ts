@@ -37,19 +37,36 @@ import { INITIAL_BUSES, INITIAL_STUDENTS } from '../../src/mockData';
 // by its own doc comment, and legacy_users has no phone column to match
 // against even if it were reused.
 //
-// CONCLUSION: no ownership guard was added to either legacy mutation
-// route (/api/buses/:id/start-route, /api/students/:id/status). The
-// existing Phase 7A role matrix (LEGACY_OPERATIONAL_ROLES /
-// LEGACY_ANY_ROLE, unscoped by resource) is preserved exactly. These
-// tests prove that conclusion is accurate and stays accurate — they
-// exist to fail loudly if a future change quietly introduces a fabricated
-// relationship, not to celebrate the limitation.
+// CONCLUSION (Phase 7I, at the time): no ownership guard was added to
+// either legacy mutation route. The existing Phase 7A role matrix
+// (LEGACY_OPERATIONAL_ROLES / LEGACY_ANY_ROLE, unscoped by resource) was
+// preserved exactly.
+//
+// PHASE 7K UPDATE — this finding is now CLOSED, not fabricated around.
+// Phase 7J's own follow-up audit found the deeper blocker: the resources
+// themselves (buses/students) were never persisted at all, so there was
+// no table to attach a driverId/parentId FK to (see the 7J section
+// below). Phase 7K persisted them (legacy_buses/legacy_students,
+// migration 0012) and THEN added the FK, seeded only where a real,
+// already-disclosed name correspondence already existed between
+// mockData's driverName/parentName and a legacy_users row (see
+// database/seed/seed.ts's own seedLegacyBuses/seedLegacyStudents
+// comments for the exact evidence — bus-101->u-2, std-1/std-2->u-1;
+// everything else stays unassigned, not fabricated). The tests in this
+// block are updated below to prove the NEW, real state; the mockData.ts-
+// level assertions that were never about the DB seed in the first place
+// (INITIAL_BUSES/INITIAL_STUDENTS are frontend fallback constants,
+// unrelated to server.ts since Phase 7K's refactor) remain unchanged and
+// still pass, because they were never the source of the limitation.
+// See tests/services/legacyResourceOwnership.test.ts for the full new
+// ownership test suite (repository CRUD, seed-mapping provenance,
+// guard behavior, source-scans, isolation, persistence).
 
 describe('Phase 7I — driver->bus ownership: no authoritative relationship exists (do not fabricate)', () => {
-  it('no bus record carries a driverId — only free-text driverName/driverPhone', () => {
+  it('Phase 7K: the Bus type now carries a real driverId, but mockData.ts\'s own fallback constant deliberately leaves it null (unassigned) — it is not the source of the real seeded ownership, database/seed/seed.ts is (see legacyResourceOwnership.test.ts)', () => {
     for (const bus of INITIAL_BUSES) {
-      expect(bus).not.toHaveProperty('driverId');
-      expect(typeof (bus as unknown as { driverName: unknown }).driverName).toBe('string');
+      expect(bus.driverId).toBeNull();
+      expect(typeof bus.driverName).toBe('string');
     }
   });
 
@@ -60,28 +77,26 @@ describe('Phase 7I — driver->bus ownership: no authoritative relationship exis
     expect(block).not.toMatch(/phone/i);
   });
 
-  it('server.ts documents this exact limitation on the start-route route, not silently', () => {
+  it('Phase 7K: server.ts now documents real, enforced driver ownership on the start-route route (this specific limitation is closed)', () => {
     const serverSource = fs.readFileSync(path.resolve(__dirname, '../../server.ts'), 'utf8');
     const idx = serverSource.indexOf("app.post('/api/buses/:id/start-route'");
-    const precedingComment = serverSource.slice(Math.max(0, idx - 500), idx).replace(/\n\/\/\s*/g, ' ');
-    expect(precedingComment).toMatch(/no driver identity field/);
-    expect(precedingComment).toMatch(/NOT enforced/);
+    const precedingComment = serverSource.slice(Math.max(0, idx - 700), idx).replace(/\n\/\/\s*/g, ' ');
+    expect(precedingComment).toMatch(/requireLegacyBusOwnership/);
+    expect(precedingComment).not.toMatch(/NOT enforced/);
   });
 });
 
 describe('Phase 7I — parent->student ownership: the parentId field is decorative, never session-derived (do not fabricate)', () => {
-  it('students carry a parentId field, but it is never compared against any authenticated identity in the frontend', () => {
+  it('Phase 7K: ParentPortal.tsx now compares parentId against the real, session-derived currentUser.id (this specific limitation is closed) — the mockData.ts constant used above is unrelated frontend fallback data, unchanged and still literal', () => {
     const student = INITIAL_STUDENTS[0];
-    expect(student.parentId).toBeTruthy(); // the field exists...
+    expect(student.parentId).toBeTruthy(); // the mockData.ts fallback literal still exists, unrelated to DB seeding since Phase 7K
 
     const parentPortalSource = fs.readFileSync(path.resolve(__dirname, '../../src/components/ParentPortal.tsx'), 'utf8');
-    // ...but is only ever matched against a hardcoded literal, never
-    // currentUser.id / currentUser.email / any session-derived value.
-    expect(parentPortalSource).toMatch(/parentId\s*===\s*'par-1'/);
-    expect(parentPortalSource).not.toMatch(/parentId\s*===\s*currentUser/);
+    expect(parentPortalSource).toMatch(/parentId\s*===\s*currentUser\?\.id/);
+    expect(parentPortalSource).not.toMatch(/parentId\s*===\s*'par-1'/);
   });
 
-  it('the legacy identity id space (u-1..u-4) never overlaps the parentId id space (par-1..par-4) — confirming there is no mapping between them', () => {
+  it('the legacy identity id space (u-1..u-4) never overlaps mockData.ts\'s parentId id space (par-1..par-4) — that frontend fallback constant is not, and was never meant to be, the real DB seed (see legacyResourceOwnership.test.ts for the actual seeded u-1/u-2 mapping)', () => {
     const legacyUserIds = ['u-1', 'u-2', 'u-3', 'u-4'];
     const parentIds = [...new Set(INITIAL_STUDENTS.map((s) => s.parentId))];
     for (const pid of parentIds) {
@@ -89,12 +104,12 @@ describe('Phase 7I — parent->student ownership: the parentId field is decorati
     }
   });
 
-  it('server.ts documents this exact limitation on the student-status route, not silently', () => {
+  it('Phase 7K: server.ts now documents real, enforced parent ownership on the student-status route (this specific limitation is closed)', () => {
     const serverSource = fs.readFileSync(path.resolve(__dirname, '../../server.ts'), 'utf8');
     const idx = serverSource.indexOf("app.post('/api/students/:id/status'");
-    const precedingComment = serverSource.slice(Math.max(0, idx - 500), idx).replace(/\n\/\/\s*/g, ' ');
-    expect(precedingComment).toMatch(/no parent-ownership FK/);
-    expect(precedingComment).toMatch(/NOT enforced/);
+    const precedingComment = serverSource.slice(Math.max(0, idx - 700), idx).replace(/\n\/\/\s*/g, ' ');
+    expect(precedingComment).toMatch(/requireLegacyStudentOwnership/);
+    expect(precedingComment).not.toMatch(/NOT enforced/);
   });
 
   it('the governed side (Phase 5A) reached the same conclusion independently — prior art, not a fresh guess', () => {
@@ -169,11 +184,17 @@ describe('Phase 7I — body/query spoofing has no effect on identity, role, or (
   });
 });
 
-describe('Phase 7I — KNOWN LIMITATION, honestly proven, not hidden: cross-resource legacy mutation is not currently blocked', () => {
-  // These tests do NOT assert desired behavior — they document the actual,
-  // audited, unfixed limitation precisely so it cannot silently regress
-  // (get worse) or silently appear fixed (someone claims it's solved when
-  // it isn't) without a test failing either way.
+describe('Phase 7I — the role constants themselves stay coarse/unscoped by design; Phase 7K added a SEPARATE ownership layer on top (see legacyResourceOwnership.test.ts), it did not change these constants', () => {
+  // Phase 7K update: cross-resource legacy mutation IS now blocked for
+  // start-route (driver) and student-status (parent) — but via the new
+  // requireLegacyBusOwnership/requireLegacyStudentOwnership guards
+  // layered ON TOP of requireLegacyRole, not by narrowing
+  // LEGACY_OPERATIONAL_ROLES/LEGACY_ANY_ROLE themselves. These two
+  // constants remain intentionally coarse (role-only, no resource
+  // parameter) — that design decision didn't change, so these specific
+  // assertions about the constants still hold and still matter: they'd
+  // fail loudly if a future change tried to (wrongly) solve ownership by
+  // narrowing the role constant instead of using the guard layer.
   it('LEGACY_OPERATIONAL_ROLES grants every driver the same access regardless of which bus is targeted — no per-bus scoping exists in the role constant itself', () => {
     const authzSource = fs.readFileSync(path.resolve(__dirname, '../../server/services/legacyAuthz.ts'), 'utf8');
     expect(authzSource).toMatch(/LEGACY_OPERATIONAL_ROLES = \['admin', 'school', 'driver'\]/);
@@ -207,36 +228,46 @@ describe('Phase 7I — KNOWN LIMITATION, honestly proven, not hidden: cross-reso
 // condition ("if buses/students remain in-memory-only data structures,
 // STOP... do not silently redesign the data layer").
 //
-// No ownership code was added. This block exists so the STOP's factual
-// basis stays durable and testable, exactly like the block above.
+// PHASE 7K UPDATE — this STOP condition is now CLOSED. Phase 7K persisted
+// the legacy bus/student resource model (legacy_buses/legacy_students,
+// migration 0012, server/repositories/legacyBusRepository.ts +
+// legacyStudentRepository.ts), removed server.ts's in-memory arrays
+// entirely, and only THEN added the driverId/parentId FK the earlier
+// STOP correctly said had no honest table to attach to. The tests below
+// are updated to prove the new, real state; they remain in this file
+// (rather than being deleted) so the STOP's original factual basis and
+// its resolution are both visible in one place.
 // ---------------------------------------------------------------------------
 
-describe('Phase 7J — STOP condition evidence: legacy buses/students remain in-memory-only, not persisted', () => {
-  it('server.ts still declares buses/students as plain in-memory arrays, not backed by any repository', () => {
+describe('Phase 7J->7K — RESOLVED: legacy buses/students are now persisted, not in-memory-only', () => {
+  it('server.ts no longer declares buses/students as in-memory arrays — both routes through legacyBusRepository/legacyStudentRepository', () => {
     const serverSource = fs.readFileSync(path.resolve(__dirname, '../../server.ts'), 'utf8');
-    expect(serverSource).toMatch(/let buses = \[\.\.\.INITIAL_BUSES\]/);
-    expect(serverSource).toMatch(/let students = \[\.\.\.INITIAL_STUDENTS\]/);
+    const codeLines = serverSource.split('\n').filter((l) => !l.trim().startsWith('//'));
+    const code = codeLines.join('\n');
+    expect(code).not.toMatch(/let\s+buses\s*=\s*\[\.\.\.INITIAL_BUSES\]/);
+    expect(code).not.toMatch(/let\s+students\s*=\s*\[\.\.\.INITIAL_STUDENTS\]/);
+    expect(serverSource).toContain("import { legacyBusRepository");
+    expect(serverSource).toContain("import { legacyStudentRepository");
   });
 
-  it('no legacy_buses or legacy_students table exists in the schema — only the unrelated, GOVERNED Journey Core buses/students tables do', () => {
+  it('legacy_buses and legacy_students tables now exist in the schema, distinct from the GOVERNED Journey Core buses/students tables (same naming collision, now two real tables on both sides)', () => {
     const schemaSource = fs.readFileSync(path.resolve(__dirname, '../../database/schema.ts'), 'utf8');
-    expect(schemaSource).not.toMatch(/export const legacyBuses/);
-    expect(schemaSource).not.toMatch(/export const legacyStudents/);
-    // The governed tables exist (Journey Core, Phase 3A+) — confirming the
-    // collision is real, not a naming coincidence being missed.
+    expect(schemaSource).toMatch(/export const legacyBuses = sqliteTable\('legacy_buses'/);
+    expect(schemaSource).toMatch(/export const legacyStudents = sqliteTable\('legacy_students'/);
+    // The governed tables still exist too — confirming this is a real,
+    // deliberate two-sided collision, not a rename of the governed ones.
     expect(schemaSource).toMatch(/export const buses = sqliteTable\('buses'/);
     expect(schemaSource).toMatch(/export const students = sqliteTable\('students'/);
   });
 
-  it('the Bus TypeScript contract has no driverId field — only display-only driverName/driverPhone/driverAvatar', () => {
+  it('the Bus TypeScript contract now has a real driverId field (nullable — unassigned is honest, not fabricated)', () => {
     const typesSource = fs.readFileSync(path.resolve(__dirname, '../../src/types.ts'), 'utf8');
     const start = typesSource.indexOf('export interface Bus');
     const block = typesSource.slice(start, typesSource.indexOf('}', start));
-    expect(block).not.toMatch(/driverId/);
-    expect(block).toMatch(/driverName/);
+    expect(block).toMatch(/driverId:\s*string\s*\|\s*null/);
   });
 
-  it('no legacy repository or side-table maps a driver/parent identity to a bus/student — only the unrelated governed tripRepository.findByDriverId exists (Journey Core, not the legacy surface)', () => {
+  it('legacyBusRepository.ts and legacyStudentRepository.ts now map driver/parent identity to a bus/student — tripRepository (governed Journey Core) is no longer the only one', () => {
     const repoDir = path.resolve(__dirname, '../../server/repositories');
     const files = fs.readdirSync(repoDir).filter((f) => f.endsWith('.ts'));
     const matches: string[] = [];
@@ -244,8 +275,6 @@ describe('Phase 7J — STOP condition evidence: legacy buses/students remain in-
       const source = fs.readFileSync(path.join(repoDir, f), 'utf8');
       if (/\b(driverId|parentId)\b/.test(source)) matches.push(f);
     }
-    // Only tripRepository (governed Journey Core) is expected to reference
-    // driverId; nothing legacy-surface-related should.
-    expect(matches).toEqual(['tripRepository.ts']);
+    expect(matches.sort()).toEqual(['legacyBusRepository.ts', 'legacyStudentRepository.ts', 'tripRepository.ts']);
   });
 });

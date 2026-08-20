@@ -665,3 +665,91 @@ export const legacyUsers = sqliteTable(
     emailUnique: uniqueIndex('legacy_users_email_unique').on(table.email),
   })
 );
+
+// Phase 7K — server.ts's `let buses = [...INITIAL_BUSES]` was, like the
+// legacy identity store before Phase 7H, a plain in-memory array: never
+// persisted, so a bus update made via one server process was invisible to
+// every other process (same defect class as Phase 7H's password bug, this
+// time for /api/buses and its dependents). Persisted here with exactly the
+// field set the existing API contract (src/types.ts's `Bus` interface,
+// confirmed by a full source audit of every server.ts read/write) actually
+// requires — nothing invented beyond it. `currentLocation: {lat,lng}` is
+// flattened to currentLat/currentLng, the same convention the GOVERNED
+// `buses` table above already uses for the same kind of value.
+//
+// driverId IS a real, enforced FK to legacy_users.id (nullable — see the
+// seed comment for exactly which buses get a real value and why: only
+// where an already-disclosed, pre-existing name correspondence between
+// mockData's driverName and a real legacy_users row exists; every other
+// bus is left unassigned rather than fabricating one). This is a
+// deliberate, different decision from legacySessions/legacyLoginAttempts
+// above (which stayed unconstrained) — those had no candidate table to
+// reference honestly; this one now does, because this migration is the
+// one creating it.
+export const legacyBuses = sqliteTable('legacy_buses', {
+  id: id(),
+  busNumber: text('bus_number').notNull(),
+  plateNumber: text('plate_number').notNull(),
+  driverId: text('driver_id').references(() => legacyUsers.id),
+  driverName: text('driver_name').notNull(),
+  driverPhone: text('driver_phone').notNull(),
+  driverAvatar: text('driver_avatar').notNull(),
+  capacity: integer('capacity').notNull(),
+  currentOccupancy: integer('current_occupancy').notNull().default(0),
+  currentLat: real('current_lat').notNull(),
+  currentLng: real('current_lng').notNull(),
+  speedKmH: real('speed_kmh').notNull().default(0),
+  status: text('status').notNull().default('idle'),
+  fuelLevel: real('fuel_level').notNull().default(100),
+  safetyScore: real('safety_score').notNull().default(100),
+  // Opaque reference only — the legacy `routes` array (server.ts) stays
+  // in-memory in this phase (source audit found no route requiring it to
+  // become persistent), so this cannot be a real FK without persisting
+  // routes too, which is out of this phase's scope.
+  assignedRouteId: text('assigned_route_id'),
+  nextStopName: text('next_stop_name').notNull(),
+  nextStopEtaMins: integer('next_stop_eta_mins').notNull().default(0),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+// Phase 7K — same treatment as legacyBuses above, for server.ts's
+// `let students = [...INITIAL_STUDENTS]`. `pickupPoint: {lat,lng,address,
+// nameAr}` is flattened to pickupLat/pickupLng/pickupAddress/pickupNameAr.
+//
+// parentId IS a real, enforced FK to legacy_users.id (nullable) — same
+// seeding discipline as legacyBuses.driverId: only students whose
+// mockData parentName already, disclosedly matches a real legacy_users
+// row get a real value; everyone else stays unassigned. The legacy
+// `POST /api/students` create form has always sent a placeholder
+// `parentId: 'par-new'` string that was never a real identity reference
+// (confirmed by source audit of DataManagementModal.tsx) — that placeholder
+// is not carried into this FK; new students are created unassigned.
+export const legacyStudents = sqliteTable('legacy_students', {
+  id: id(),
+  name: text('name').notNull(),
+  grade: text('grade').notNull(),
+  avatar: text('avatar').notNull(),
+  schoolId: text('school_id').notNull(),
+  schoolName: text('school_name').notNull(),
+  parentId: text('parent_id').references(() => legacyUsers.id),
+  parentName: text('parent_name').notNull(),
+  parentPhone: text('parent_phone').notNull(),
+  // Plain opaque reference, NOT a FK: the existing delete-bus endpoint has
+  // never cascaded or blocked on referencing students (in-memory today,
+  // confirmed by source audit), and out-of-scope for this phase's
+  // driver/parent ownership model — adding a FK here would silently
+  // change delete semantics the phase's own instructions say to preserve.
+  busId: text('bus_id').notNull(),
+  busNumber: text('bus_number').notNull(),
+  pickupLat: real('pickup_lat').notNull(),
+  pickupLng: real('pickup_lng').notNull(),
+  pickupAddress: text('pickup_address').notNull(),
+  pickupNameAr: text('pickup_name_ar').notNull(),
+  status: text('status').notNull().default('at_home'),
+  pickupTimePlanned: text('pickup_time_planned').notNull(),
+  pickupTimeActual: text('pickup_time_actual'),
+  seatNumber: text('seat_number').notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});

@@ -26,6 +26,8 @@ import {
   notifications,
   userContacts,
   legacyUsers,
+  legacyBuses,
+  legacyStudents,
 } from '../schema';
 import { DEMO_PARENT_PHONE_BY_EMAIL } from '../../server/domain/parentAccessContract';
 import { normalizeContactValue } from '../../server/services/ContactNormalization';
@@ -56,11 +58,21 @@ function clearAll() {
   // again).
   // Phase 6A: user_contacts references users — must go before it (same
   // recurring bug class, guarded again).
-  // Phase 7H: legacy_users has no FK dependents (deliberately unconstrained
-  // — see its own schema comment), so its position doesn't matter for FK
-  // order, but it IS seed data (unlike legacy_sessions/legacy_login_attempts,
-  // which are pure runtime state seed.ts never touches) and was the exact
-  // "new table forgotten by clearAll" bug this comment block already warns
+  // Phase 7K: legacy_buses/legacy_students both carry a real FK to
+  // legacy_users (driverId/parentId) — unlike legacy_sessions/
+  // legacy_login_attempts, which stayed deliberately unconstrained. Both
+  // must be cleared BEFORE legacy_users or the delete below throws a FK
+  // constraint violation (foreign_keys=ON). Same recurring "new table
+  // forgotten by clearAll" bug class flagged throughout this function —
+  // guarded again here.
+  db.delete(legacyStudents).run();
+  db.delete(legacyBuses).run();
+  // Phase 7H: legacy_sessions/legacy_login_attempts stayed deliberately
+  // unconstrained against legacy_users (see that table's own schema
+  // comment), so only legacy_buses/legacy_students above actually gate
+  // this delete. legacy_users IS seed data (unlike those two, which are
+  // pure runtime state seed.ts never touches) and was the exact "new
+  // table forgotten by clearAll" bug this comment block already warns
   // about, caught by tests/database/seedIdempotency.test.ts exactly as
   // designed.
   db.delete(legacyUsers).run();
@@ -151,6 +163,206 @@ export function seed() {
     { id: 'u-4', name: 'المشرف العام - مركز مسارَا الذكي', email: 'admin@masara.om', role: 'admin' },
   ].map((u) => ({ ...u, passwordHash: hashPassword('password123') }));
   db.insert(legacyUsers).values(seedLegacyUsers).run();
+
+  // Phase 7K — legacy_buses/legacy_students seed. IDs match
+  // src/mockData.ts's INITIAL_BUSES/INITIAL_STUDENTS exactly
+  // (bus-101..103, std-1..5) since several frontend components fall back
+  // to those literal strings (e.g. DataManagementModal.tsx's
+  // `useState(buses[0]?.id || 'bus-101')`, ParentPortal.tsx's
+  // `students[0]?.id || 'std-1'`) — preserving them keeps every existing
+  // fallback path working unchanged.
+  //
+  // driverId/parentId ownership is seeded ONLY where a real, ALREADY
+  // DISCLOSED correspondence exists between mockData's free-text
+  // driverName/parentName and a legacy_users row — never invented:
+  //   - bus-101.driverId = 'u-2' (driver1@masara.om): mockData's
+  //     driverName for bus-101 ("الكابتن سعيد بن حمد البوسعيدي") is a
+  //     byte-for-byte match of legacy_users u-2's name, and this exact
+  //     pairing is the same one this file's own seedUsers comment above
+  //     already documents as "deliberately aligned... by design".
+  //   - std-1.parentId = std-2.parentId = 'u-1' (parent@masara.om):
+  //     mockData's parentName for both ("أحمد بن سيف البوسعيدي") matches
+  //     legacy_users u-1's name exactly, and the governed-side seed above
+  //     (studentDefs, `isDemoParentChild = i === 0 || i === 1`) already
+  //     documents these as "the demo parent's children" for the exact
+  //     same real identity.
+  //   - bus-102/bus-103 (driver2/driver3) and std-3/std-4/std-5 (their
+  //     parents) have NO corresponding legacy_users row at all — only
+  //     u-1..u-4 were ever seeded there (Phase 7H) — so there is no
+  //     honest value to assign; left NULL (unassigned) rather than
+  //     fabricated.
+  const seedLegacyBuses = [
+    {
+      id: 'bus-101',
+      busNumber: 'حافلة 101',
+      plateNumber: 'ط ع 4589',
+      driverId: 'u-2',
+      driverName: 'الكابتن سعيد بن حمد البوسعيدي',
+      driverPhone: '+968 9123 4567',
+      driverAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200',
+      capacity: 24,
+      currentOccupancy: 18,
+      currentLat: 23.598,
+      currentLng: 58.41,
+      speedKmH: 42,
+      status: 'en_route_school',
+      fuelLevel: 88,
+      safetyScore: 98,
+      assignedRouteId: 'route-101',
+      nextStopName: 'حي القرم - المجمع السكني',
+      nextStopEtaMins: 4,
+    },
+    {
+      id: 'bus-102',
+      busNumber: 'حافلة 102',
+      plateNumber: 'م ص 1234',
+      driverId: null,
+      driverName: 'الكابتن سالم بن خلفان المعمري',
+      driverPhone: '+968 9555 6677',
+      driverAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=200',
+      capacity: 20,
+      currentOccupancy: 15,
+      currentLat: 23.612,
+      currentLng: 58.21,
+      speedKmH: 38,
+      status: 'en_route_pickup',
+      fuelLevel: 75,
+      safetyScore: 95,
+      assignedRouteId: 'route-102',
+      nextStopName: 'حي الخوض - شارع الجامعة',
+      nextStopEtaMins: 7,
+    },
+    {
+      id: 'bus-103',
+      busNumber: 'حافلة 103 (احتياطية)',
+      plateNumber: 'ر ط 7890',
+      driverId: null,
+      driverName: 'الكابتن ناصر بن راشد الهنائي',
+      driverPhone: '+968 9234 5678',
+      driverAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=200',
+      capacity: 28,
+      currentOccupancy: 0,
+      currentLat: 23.6015,
+      currentLng: 58.421,
+      speedKmH: 0,
+      status: 'idle',
+      fuelLevel: 100,
+      safetyScore: 100,
+      assignedRouteId: 'route-103',
+      nextStopName: 'المدرسة (مركز التجمع)',
+      nextStopEtaMins: 0,
+    },
+  ];
+  db.insert(legacyBuses).values(seedLegacyBuses).run();
+
+  const seedLegacyStudents = [
+    {
+      id: 'std-1',
+      name: 'مريم بنت أحمد البوسعيدية',
+      grade: 'الصف الخامس الابتدائي',
+      avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&q=80&w=200',
+      schoolId: 'sch-1',
+      schoolName: 'مدرسة المسار الدولية - القرم (مسقط)',
+      parentId: 'u-1',
+      parentName: 'أحمد بن سيف البوسعيدي',
+      parentPhone: '+968 9111 2233',
+      busId: 'bus-101',
+      busNumber: 'حافلة 101',
+      pickupLat: 23.595,
+      pickupLng: 58.405,
+      pickupAddress: 'حي القرم، شارع النهضة',
+      pickupNameAr: 'نقطة توقف حي القرم (أ)',
+      status: 'boarded',
+      pickupTimePlanned: '06:40 ص',
+      pickupTimeActual: '06:42 ص',
+      seatNumber: '04A',
+    },
+    {
+      id: 'std-2',
+      name: 'الخليل بن أحمد البوسعيدي',
+      grade: 'الصف الثاني الابتدائي',
+      avatar: 'https://images.unsplash.com/photo-1485546246426-74dc88dec4d9?auto=format&fit=crop&q=80&w=200',
+      schoolId: 'sch-1',
+      schoolName: 'مدرسة المسار الدولية - القرم (مسقط)',
+      parentId: 'u-1',
+      parentName: 'أحمد بن سيف البوسعيدي',
+      parentPhone: '+968 9111 2233',
+      busId: 'bus-101',
+      busNumber: 'حافلة 101',
+      pickupLat: 23.595,
+      pickupLng: 58.405,
+      pickupAddress: 'حي القرم، شارع النهضة',
+      pickupNameAr: 'نقطة توقف حي القرم (أ)',
+      status: 'boarded',
+      pickupTimePlanned: '06:40 ص',
+      pickupTimeActual: '06:42 ص',
+      seatNumber: '04B',
+    },
+    {
+      id: 'std-3',
+      name: 'سالم بن فهد الحوسني',
+      grade: 'الصف السادس الابتدائي',
+      avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&q=80&w=200',
+      schoolId: 'sch-1',
+      schoolName: 'مدرسة المسار الدولية - القرم (مسقط)',
+      parentId: null,
+      parentName: 'فهد بن سلطان الحوسني',
+      parentPhone: '+968 9444 5566',
+      busId: 'bus-101',
+      busNumber: 'حافلة 101',
+      pickupLat: 23.589,
+      pickupLng: 58.412,
+      pickupAddress: 'حي العذيبة، قرب حديقة العذيبة',
+      pickupNameAr: 'نقطة توقف حي العذيبة (ب)',
+      status: 'waiting',
+      pickupTimePlanned: '06:50 ص',
+      pickupTimeActual: null,
+      seatNumber: '07A',
+    },
+    {
+      id: 'std-4',
+      name: 'ريم بنت عبدالله الزدجالية',
+      grade: 'الصف الرابع الابتدائي',
+      avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=200',
+      schoolId: 'sch-1',
+      schoolName: 'مدرسة المسار الدولية - القرم (مسقط)',
+      parentId: null,
+      parentName: 'عبدالله بن علي الزدجالي',
+      parentPhone: '+968 9777 8899',
+      busId: 'bus-102',
+      busNumber: 'حافلة 102',
+      pickupLat: 23.615,
+      pickupLng: 58.205,
+      pickupAddress: 'حي الخوض، شارع البركات',
+      pickupNameAr: 'نقطة توقف حي الخوض (ج)',
+      status: 'waiting',
+      pickupTimePlanned: '06:45 ص',
+      pickupTimeActual: null,
+      seatNumber: '02B',
+    },
+    {
+      id: 'std-5',
+      name: 'محمد بن ناصر البلوشي',
+      grade: 'الصف الثالث الابتدائي',
+      avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&q=80&w=200',
+      schoolId: 'sch-1',
+      schoolName: 'مدرسة المسار الدولية - القرم (مسقط)',
+      parentId: null,
+      parentName: 'ناصر بن خميس البلوشي',
+      parentPhone: '+968 9222 3344',
+      busId: 'bus-101',
+      busNumber: 'حافلة 101',
+      pickupLat: 23.602,
+      pickupLng: 58.398,
+      pickupAddress: 'حي الغبرة الشمالية',
+      pickupNameAr: 'نقطة توقف الغبرة الشمالية',
+      status: 'absent',
+      pickupTimePlanned: '06:35 ص',
+      pickupTimeActual: null,
+      seatNumber: '01A',
+    },
+  ];
+  db.insert(legacyStudents).values(seedLegacyStudents).run();
 
   // Phase 6A — one minimal, deterministic demo contact for the seeded demo
   // parent: their EMAIL, already verified (spec's explicit seed-only

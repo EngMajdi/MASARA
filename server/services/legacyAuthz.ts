@@ -67,3 +67,29 @@ export function requireLegacyRole(authorizationHeader: unknown, allowedRoles: re
 export const LEGACY_DATA_MANAGEMENT_ROLES = ['admin', 'school'] as const;
 export const LEGACY_OPERATIONAL_ROLES = ['admin', 'school', 'driver'] as const;
 export const LEGACY_ANY_ROLE = ['admin', 'school', 'driver', 'parent'] as const;
+
+// Phase 7K — the data-model limitation the comment above described (no
+// driver->bus or parent->student FK) has now been closed for buses and
+// students specifically (legacy_buses.driverId / legacy_students.parentId,
+// see database/schema.ts). These two guards are the ownership layer that
+// sits ON TOP of requireLegacyRole above, never in place of it — every
+// call site still runs its existing role check first; these only narrow
+// a role that already passed. Identity is always the session user
+// resolved by requireLegacySession/requireLegacyRole; the resource is
+// always loaded server-side by the caller (via legacyBusRepository /
+// legacyStudentRepository) before either function runs. Neither function
+// reads req.body — there is nothing here for a client to spoof.
+
+/** admin/school: always allowed (existing behavior, unscoped). driver: allowed only for the bus they own. Any other role that reaches this point already failed requireLegacyRole. */
+export function requireLegacyBusOwnership(user: LegacySessionUser, bus: { driverId: string | null }): LegacyAuthzGuard {
+  if (user.role === 'admin' || user.role === 'school') return { ok: true, user };
+  if (bus.driverId === user.id) return { ok: true, user };
+  return { ok: false, status: 403, error: 'هذا الحساب لا يملك صلاحية التحكم بهذه الحافلة.' };
+}
+
+/** admin/school/driver: always allowed (existing behavior, unscoped — drivers still mark boarding/absence for any student on their run). parent: allowed only for their own child. */
+export function requireLegacyStudentOwnership(user: LegacySessionUser, student: { parentId: string | null }): LegacyAuthzGuard {
+  if (user.role === 'admin' || user.role === 'school' || user.role === 'driver') return { ok: true, user };
+  if (student.parentId === user.id) return { ok: true, user };
+  return { ok: false, status: 403, error: 'هذا الحساب لا يملك صلاحية تحديث حالة هذا الطالب.' };
+}

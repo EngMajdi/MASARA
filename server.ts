@@ -3,8 +3,6 @@ import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 import {
   INITIAL_SCHOOLS,
-  INITIAL_BUSES,
-  INITIAL_STUDENTS,
   INITIAL_ROUTES,
   INITIAL_NOTIFICATIONS,
   INITIAL_WORKFLOW_STEPS
@@ -25,10 +23,20 @@ import { db } from './database/client';
 import { schools as schoolsTable } from './database/schema';
 import { createSession, invalidateSession, invalidateAllSessionsForUser } from './server/services/legacySessionService';
 import { checkLoginAllowed, recordLoginFailure, recordLoginSuccess } from './server/services/loginRateLimiter';
-import { requireLegacySession, requireLegacyRole, LEGACY_DATA_MANAGEMENT_ROLES, LEGACY_OPERATIONAL_ROLES, LEGACY_ANY_ROLE } from './server/services/legacyAuthz';
+import {
+  requireLegacySession,
+  requireLegacyRole,
+  requireLegacyBusOwnership,
+  requireLegacyStudentOwnership,
+  LEGACY_DATA_MANAGEMENT_ROLES,
+  LEGACY_OPERATIONAL_ROLES,
+  LEGACY_ANY_ROLE
+} from './server/services/legacyAuthz';
 import { securityHeaders } from './server/middleware/securityHeaders';
 import { validatePasswordPolicy } from './server/services/passwordPolicy';
 import { legacyUserRepository } from './server/repositories/legacyUserRepository';
+import { legacyBusRepository, type LegacyBusView } from './server/repositories/legacyBusRepository';
+import { legacyStudentRepository, type LegacyStudentView } from './server/repositories/legacyStudentRepository';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -83,8 +91,14 @@ app.use(contactRouter);
 
 // In-memory application state
 let schools = [...INITIAL_SCHOOLS];
-let buses = [...INITIAL_BUSES];
-let students = [...INITIAL_STUDENTS];
+// Phase 7K — buses/students moved off this in-memory pattern entirely
+// (previously `let buses = [...INITIAL_BUSES]` / `let students = [...]`,
+// the same never-shared-across-processes defect class Phase 7H found and
+// fixed for the legacy identity store). The database is now authoritative
+// for both; every route below reads/writes through legacyBusRepository /
+// legacyStudentRepository, never a local array. `routes` stays exactly as
+// it was — this phase's own audit found no route requiring it to become
+// persistent (see legacyBuses.assignedRouteId's schema comment).
 let routes = [...INITIAL_ROUTES];
 let notifications = [...INITIAL_NOTIFICATIONS];
 let workflowSteps = [...INITIAL_WORKFLOW_STEPS];
@@ -175,8 +189,8 @@ app.get('/api/all-data', (req, res) => {
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json({
     schools,
-    buses,
-    students,
+    buses: legacyBusRepository.findAll(),
+    students: legacyStudentRepository.findAll(),
     routes,
     notifications,
     workflowSteps,
@@ -333,13 +347,13 @@ app.get('/api/schools', (req, res) => {
 app.get('/api/buses', (req, res) => {
   const guard = requireLegacySession(req.headers.authorization);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
-  res.json(buses);
+  res.json(legacyBusRepository.findAll());
 });
 
 app.get('/api/students', (req, res) => {
   const guard = requireLegacySession(req.headers.authorization);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
-  res.json(students);
+  res.json(legacyStudentRepository.findAll());
 });
 
 app.get('/api/routes', (req, res) => {
@@ -379,8 +393,8 @@ app.post('/api/notifications/schedule-prearrival', (req, res) => {
   const guard = requireLegacyRole(req.headers.authorization, LEGACY_ANY_ROLE);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const { studentId, busId, minutesBefore = 5 } = req.body;
-  const student = students.find((s) => s.id === studentId);
-  const bus = buses.find((b) => b.id === busId || b.id === student?.busId);
+  const student = legacyStudentRepository.findById(studentId);
+  const bus = legacyBusRepository.findById(busId) || (student ? legacyBusRepository.findById(student.busId) : undefined);
 
   const nowStr = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
   const stdName = student ? student.name : 'الطالب';
@@ -419,9 +433,8 @@ app.get('/api/workflow-steps', (req, res) => {
 app.post('/api/students', (req, res) => {
   const guard = requireLegacyRole(req.headers.authorization, LEGACY_DATA_MANAGEMENT_ROLES);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
-  const newStudent = { id: `std-${Date.now()}`, ...req.body };
-  students.unshift(newStudent);
-  res.json({ success: true, student: newStudent, students });
+  const newStudent = legacyStudentRepository.create(req.body);
+  res.json({ success: true, student: newStudent, students: legacyStudentRepository.findAll() });
 });
 
 // Delete student — data management, admin/school only.
@@ -429,18 +442,16 @@ app.delete('/api/students/:id', (req, res) => {
   const guard = requireLegacyRole(req.headers.authorization, LEGACY_DATA_MANAGEMENT_ROLES);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const { id } = req.params;
-  const idx = students.findIndex((s) => s.id === id);
-  if (idx !== -1) students.splice(idx, 1);
-  res.json({ success: true, students });
+  legacyStudentRepository.deleteById(id);
+  res.json({ success: true, students: legacyStudentRepository.findAll() });
 });
 
 // Create new bus — data management, admin/school only.
 app.post('/api/buses', (req, res) => {
   const guard = requireLegacyRole(req.headers.authorization, LEGACY_DATA_MANAGEMENT_ROLES);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
-  const newBus = { id: `bus-${Date.now()}`, ...req.body };
-  buses.unshift(newBus);
-  res.json({ success: true, bus: newBus, buses });
+  const newBus = legacyBusRepository.create(req.body);
+  res.json({ success: true, bus: newBus, buses: legacyBusRepository.findAll() });
 });
 
 // Delete bus — data management, admin/school only.
@@ -448,9 +459,8 @@ app.delete('/api/buses/:id', (req, res) => {
   const guard = requireLegacyRole(req.headers.authorization, LEGACY_DATA_MANAGEMENT_ROLES);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const { id } = req.params;
-  const idx = buses.findIndex((b) => b.id === id);
-  if (idx !== -1) buses.splice(idx, 1);
-  res.json({ success: true, buses });
+  legacyBusRepository.deleteById(id);
+  res.json({ success: true, buses: legacyBusRepository.findAll() });
 });
 
 // Create new route — data management, admin/school only.
@@ -473,18 +483,25 @@ app.delete('/api/routes/:id', (req, res) => {
 });
 
 // Start Route Endpoint — driver-triggered operational action (also usable
-// by admin/school). The legacy bus record has no driver identity field
-// (only a free-text driverName), so per-bus driver ownership is NOT
-// enforced here — a real, pre-existing data-model limitation (documented
-// in the final report), not fabricated around with fragile name matching.
+// by admin/school). Phase 7K: the legacy bus record now has a real,
+// persisted driverId (legacy_buses.driverId -> legacy_users.id), so a
+// driver session may only start a route for the bus they own; admin/school
+// are unaffected (unscoped, matching their existing unrestricted access).
+// See requireLegacyBusOwnership (legacyAuthz.ts) — identity is always the
+// session, never req.body.
 app.post('/api/buses/:id/start-route', (req, res) => {
   const guard = requireLegacyRole(req.headers.authorization, LEGACY_OPERATIONAL_ROLES);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const { id } = req.params;
-  const targetBus = buses.find((b) => b.id === id);
-  if (targetBus) {
-    targetBus.status = 'en_route_pickup';
+
+  const existingBus = legacyBusRepository.findById(id);
+  if (!existingBus) {
+    return res.status(404).json({ error: 'الحافلة غير موجودة' });
   }
+  const ownership = requireLegacyBusOwnership(guard.user, existingBus);
+  if (ownership.ok === false) return res.status(ownership.status).json({ error: ownership.error });
+
+  const targetBus = legacyBusRepository.updateStatus(id, 'en_route_pickup');
 
   const targetRoute = routes.find((r) => r.busId === id);
   if (targetRoute) {
@@ -514,31 +531,36 @@ app.post('/api/buses/:id/start-route', (req, res) => {
 
 // Update Student Boarding / Absence Status — reachable from both
 // DriverPortal (boarding) and ParentPortal (marking a child absent), so
-// any authenticated role is allowed; the legacy student record has no
-// parent-ownership FK (only free-text parentPhone/parentName, unlike the
-// governed students table's Phase 5A demo mapping), so per-student
-// ownership is NOT enforced here — same documented limitation as
-// start-route above.
+// any authenticated role is allowed. Phase 7K: the legacy student record
+// now has a real, persisted parentId (legacy_students.parentId ->
+// legacy_users.id); a parent session may only update their own child.
+// admin/school/driver keep their existing unrestricted access (unchanged
+// — drivers still mark boarding/absence for any student, matching the
+// original DriverPortal flow, which has no per-student ownership concept
+// of its own). See requireLegacyStudentOwnership (legacyAuthz.ts).
 app.post('/api/students/:id/status', (req, res) => {
   const guard = requireLegacyRole(req.headers.authorization, LEGACY_ANY_ROLE);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const { id } = req.params;
   const { status } = req.body;
 
-  const student = students.find((s) => s.id === id);
-  if (!student) {
+  const existingStudent = legacyStudentRepository.findById(id);
+  if (!existingStudent) {
     return res.status(404).json({ error: 'الطالب غير موجود' });
   }
+  const ownership = requireLegacyStudentOwnership(guard.user, existingStudent);
+  if (ownership.ok === false) return res.status(ownership.status).json({ error: ownership.error });
 
-  student.status = status;
+  let nowStr: string | undefined;
+  if (status === 'boarded') nowStr = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+  const student = legacyStudentRepository.updateStatus(id, status, nowStr)!;
+
   if (status === 'boarded') {
-    const nowStr = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
-    student.pickupTimeActual = nowStr;
-
+    const ts = nowStr!;
     // Dispatch notification
     const newNotif = {
       id: `notif-${Date.now()}`,
-      timestamp: nowStr,
+      timestamp: ts,
       title: `تأكيد صعود الطالب (${student.name})`,
       message: `تم صعود الطالب ${student.name} إلى ${student.busNumber} بنجاح عند المقعد ${student.seatNumber}.`,
       type: 'success' as const,
@@ -547,10 +569,10 @@ app.post('/api/students/:id/status', (req, res) => {
     };
     notifications.unshift(newNotif);
   } else if (status === 'absent') {
-    const nowStr = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    const ts = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
     const newNotif = {
       id: `notif-${Date.now()}`,
-      timestamp: nowStr,
+      timestamp: ts,
       title: `تسجيل غياب الطالب (${student.name})`,
       message: `تم إبلاغ السائق وإعادة احتساب محطة التوقف في المسار التلقائي.`,
       type: 'warning' as const,
@@ -572,7 +594,7 @@ app.post('/api/ai/optimize-routes', async (req, res) => {
     const { schoolId, trafficCondition } = req.body;
 
     const schoolObj = schools.find((s) => s.id === schoolId) || schools[0];
-    const schoolStudents = students.filter((s) => s.schoolId === schoolObj.id);
+    const schoolStudents = legacyStudentRepository.findAll().filter((s) => s.schoolId === schoolObj.id);
 
     const prompt = `
 أنت وكيل الذكاء الاصطناعي الخاص بنظام "مَسارَا MASARA" المخصص لإدارة وحوكمة النقل المدرسي.
@@ -668,7 +690,8 @@ app.post('/api/ai/detect-reroute', async (req, res) => {
     const ai = getGeminiClient();
     const { busId, incidentDescription } = req.body;
 
-    const targetBus = buses.find((b) => b.id === busId) || buses[0];
+    const allBuses = legacyBusRepository.findAll();
+    const targetBus = allBuses.find((b) => b.id === busId) || allBuses[0];
     const incident = incidentDescription || 'ازدحام مفاجئ بسبب أعمال صيانة على شارع السلطان قابوس';
 
     const prompt = `
@@ -747,9 +770,10 @@ app.post('/api/ai/predict-traffic-eta', async (req, res) => {
     const { trafficLevel, selectedBusId } = req.body;
 
     const level = trafficLevel || 'heavy'; // 'smooth' | 'moderate' | 'heavy' | 'accident'
+    const allBuses = legacyBusRepository.findAll();
     const targetBuses = selectedBusId
-      ? buses.filter((b) => b.id === selectedBusId)
-      : buses;
+      ? allBuses.filter((b) => b.id === selectedBusId)
+      : allBuses;
 
     const trafficDescriptions: Record<string, string> = {
       smooth: 'انسيابية كاملة وحركة مرور طبيعية على كافة المحاور بمسقط',
@@ -875,7 +899,7 @@ ${targetBuses
     res.json({
       success: true,
       predictionResult,
-      buses,
+      buses: allBuses,
       notifications
     });
   } catch (error) {
@@ -888,8 +912,8 @@ ${targetBuses
 function generateLocalAdvisorAnswer(
   query: string,
   userRole: string,
-  busesData: typeof buses,
-  studentsData: typeof students,
+  busesData: LegacyBusView[],
+  studentsData: LegacyStudentView[],
   schoolsData: typeof schools,
   routesData: typeof routes
 ): string {
@@ -1018,8 +1042,8 @@ app.post('/api/ai/ask-advisor', async (req, res) => {
     const ai = getGeminiClient();
     const { query, userRole, currentBuses, currentStudents, currentSchools, currentRoutes } = req.body;
 
-    const busesData = currentBuses && Array.isArray(currentBuses) && currentBuses.length > 0 ? currentBuses : buses;
-    const studentsData = currentStudents && Array.isArray(currentStudents) && currentStudents.length > 0 ? currentStudents : students;
+    const busesData = currentBuses && Array.isArray(currentBuses) && currentBuses.length > 0 ? currentBuses : legacyBusRepository.findAll();
+    const studentsData = currentStudents && Array.isArray(currentStudents) && currentStudents.length > 0 ? currentStudents : legacyStudentRepository.findAll();
     const schoolsData = currentSchools && Array.isArray(currentSchools) && currentSchools.length > 0 ? currentSchools : schools;
     const routesData = currentRoutes && Array.isArray(currentRoutes) && currentRoutes.length > 0 ? currentRoutes : routes;
 
@@ -1085,6 +1109,9 @@ app.post('/api/ai/run-agent', async (req, res) => {
     const ai = getGeminiClient();
     const { agentType, customInput } = req.body;
 
+    const currentBuses = legacyBusRepository.findAll();
+    const currentStudents = legacyStudentRepository.findAll();
+
     let agentTitle = '';
     let prompt = '';
 
@@ -1094,7 +1121,7 @@ app.post('/api/ai/run-agent', async (req, res) => {
 أنت "وكيل سلامة الطلاب" الخاص بنظام مسارَا MASARA للنقل المدرسي.
 قم بتحليل بيانات الطلاب المقيدين والحافلات والغياب الحالي، وصياغة خطة عمل وتقارير سلامة سريعة باللغة العربية بصيغة JSON تحتوي على:
 1. "agentStatus": حالة وكيل السلامة (مثال: "تم الفحص والتحقق الكامل بنسبة 100%").
-2. "checkedStudentsCount": عدد الطلاب المفحوصين (${students.length}).
+2. "checkedStudentsCount": عدد الطلاب المفحوصين (${currentStudents.length}).
 3. "findings": مصفوفة من 3 نقاط توضح الملاحظات الأمنية وحالة الصعود.
 4. "actionNotice": إجراء أو تنبيه فوري يُرسل لأولياء الأمور والمشرفين.
 5. "riskScore": تقييم مستوى المخاطر من 100 (مثال: 98/100 أمان ممتاز).
@@ -1104,7 +1131,7 @@ app.post('/api/ai/run-agent', async (req, res) => {
       prompt = `
 أنت "وكيل الصيانة والإنذار المبكر للمركبات" في مسارَا MASARA بسلطنة عمان.
 بيانات أسطول الحافلات الحالي:
-${buses.map(b => `- ${b.busNumber} (${b.plateNumber}): السائق ${b.driverName}، السعة ${b.capacity}، استهلاك الوقود 100%`).join('\n')}
+${currentBuses.map(b => `- ${b.busNumber} (${b.plateNumber}): السائق ${b.driverName}، السعة ${b.capacity}، استهلاك الوقود 100%`).join('\n')}
 
 المطلوب: قم بتحليل البيانات وإعطاء تقرير صيانة دوري باللغة العربية بصيغة JSON تحتوي على:
 1. "fleetHealthScore": نسبة جاهزية الأسطول (مثال: 96%).
@@ -1127,7 +1154,7 @@ ${buses.map(b => `- ${b.busNumber} (${b.plateNumber}): السائق ${b.driverNa
     let agentResult: any = {
       agentTitle,
       agentStatus: 'تم التشغيل والتحليل التلقائي بنجاح ⚡',
-      checkedStudentsCount: students.length,
+      checkedStudentsCount: currentStudents.length,
       findings: [
         'تأكيد مطابقة ركوب 100% من الطلاب المسجلين بالرحلة الصباحية.',
         'عدم وجود أي طالب متأخر أو مفقود عند نقاط التجميع.',

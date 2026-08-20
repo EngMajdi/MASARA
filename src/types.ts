@@ -9,7 +9,8 @@ export interface Student {
   avatar: string;
   schoolId: string;
   schoolName: string;
-  parentId: string;
+  /** Phase 7K — real FK to a legacy_users row (server-derived, never client-set). null means genuinely unassigned, not "unknown". */
+  parentId: string | null;
   parentName: string;
   parentPhone: string;
   busId: string;
@@ -44,6 +45,8 @@ export interface Bus {
   id: string;
   busNumber: string;
   plateNumber: string;
+  /** Phase 7K — real FK to a legacy_users row (server-derived, never client-set). null means genuinely unassigned, not "unknown". */
+  driverId: string | null;
   driverName: string;
   driverPhone: string;
   driverAvatar: string;

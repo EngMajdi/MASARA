@@ -31,7 +31,7 @@ interface DataManagementModalProps {
   routes: Route[];
   onAddStudent: (newStudent: Omit<Student, 'id'>) => void;
   onDeleteStudent: (id: string) => void;
-  onAddBus: (newBus: Omit<Bus, 'id'>) => void;
+  onAddBus: (newBus: Omit<Bus, 'id' | 'driverId'>) => void;
   onDeleteBus: (id: string) => void;
   onAddRoute: (newRoute: Omit<Route, 'id'>) => void;
   onDeleteRoute: (id: string) => void;
