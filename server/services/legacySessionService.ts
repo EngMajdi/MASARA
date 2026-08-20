@@ -1,4 +1,5 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
+import { legacySessionRepository } from '../repositories/legacySessionRepository';
 
 // Phase 7A — the ONE authenticated session boundary this application has.
 // Scoped additively (spec's own "additive only" resolution): every
@@ -10,12 +11,18 @@ import { randomBytes } from 'node:crypto';
 // (server/services/legacyAuthz.ts). It does not replace or wrap the
 // governed guards in server/services/authz.ts.
 //
-// In-memory only, matching this codebase's established "no
-// distributed/external infrastructure for a single-server pilot"
-// discipline (same reasoning as the in-memory SimulationEngine sessions
-// and GpsSimulationEngine sessions from Phase 2B/4A). A restart clears all
-// sessions — acceptable for a pilot; a real multi-instance deployment
-// would need shared session storage, documented as a known limitation.
+// Phase 7G — persisted to the database instead of an in-memory Map, so
+// multiple server processes (a real multi-instance deployment) share
+// session state instead of each rejecting the other's tokens. Every
+// exported function below keeps its EXACT prior name/signature/return
+// shape — server.ts and legacyAuthz.ts needed zero changes for this.
+// better-sqlite3 is synchronous, so no async ripple was needed either.
+//
+// The raw token is never persisted — only sha256(token) (see
+// database/schema.ts's legacySessions table comment for why sha256, not
+// the scrypt+salt convention used for passwords/device secrets). A
+// database read (backup, replica, breach) can therefore never recover a
+// usable session token.
 
 export interface LegacySession {
   token: string;
@@ -29,41 +36,78 @@ export interface LegacySession {
 /** 4 hours — long enough for a school-day shift, short enough that a leaked/forgotten token doesn't stay valid indefinitely. */
 export const SESSION_TTL_MS = 4 * 60 * 60 * 1000;
 
-const sessions = new Map<string, LegacySession>();
+/** How long past expiry/revocation a session row is kept before cleanup may delete it — purely for a brief post-mortem audit trail, not a security boundary (a session past expiresAt/revokedAt is already rejected by validateSession regardless of whether the row still physically exists). */
+const CLEANUP_GRACE_MS = 24 * 60 * 60 * 1000;
 
-/** `ttlMs` defaults to SESSION_TTL_MS; the override exists so tests can construct a deterministically already-expired session (a negative ttlMs) without waiting on a real clock — the same "no waiting on wall-clock time" discipline this codebase's verification-challenge tests already established. */
+function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+/**
+ * `ttlMs` defaults to SESSION_TTL_MS; the override exists so tests can
+ * construct a deterministically already-expired session (a negative
+ * ttlMs) without waiting on a real clock — the same "no waiting on
+ * wall-clock time" discipline this codebase's verification-challenge
+ * tests already established.
+ *
+ * SESSION ROTATION DECISION (Phase 7G, deliberate, not an oversight): a
+ * new login always issues a genuinely fresh, cryptographically random
+ * token (real rotation of the credential — you can never be handed back
+ * an old token, and a full password re-verification gates every issuance)
+ * but does NOT revoke the caller's other still-valid sessions. This is a
+ * multi-session model, chosen because: (1) it is the exact behavior this
+ * codebase has had since Phase 7A — changing it now would silently log a
+ * user out of an unrelated tab/device with no UI explanation why; (2) the
+ * frontend has no "active sessions" list or "log out other devices"
+ * concept anywhere to make an invalidation visible/expected; (3) this is
+ * a school-operations tool where an admin/dispatcher legitimately keeping
+ * multiple tabs or devices open is normal, not suspicious. If a future
+ * phase wants single-session-per-user, it needs a corresponding UI
+ * affordance first — this is a product decision, not a security gap
+ * (every session still independently expires and can be individually
+ * revoked via logout).
+ */
 export function createSession(user: { id: string; email: string; role: string }, ttlMs: number = SESSION_TTL_MS): LegacySession {
   const token = randomBytes(32).toString('hex');
   const now = Date.now();
-  const session: LegacySession = {
-    token,
+  const expiresAt = now + ttlMs;
+
+  legacySessionRepository.create({
     userId: user.id,
     email: user.email,
     role: user.role,
-    issuedAt: now,
-    expiresAt: now + ttlMs,
-  };
-  sessions.set(token, session);
-  return session;
+    tokenHash: hashToken(token),
+    expiresAt: new Date(expiresAt),
+  });
+
+  // Bounded, opportunistic cleanup of long-stale rows — runs on the
+  // highest-frequency auth entrypoint (every login/register), never a
+  // background loop or cron dependency (spec Phase 7G "Session Cleanup").
+  legacySessionRepository.cleanupStale(new Date(now), CLEANUP_GRACE_MS);
+
+  return { token, userId: user.id, email: user.email, role: user.role, issuedAt: now, expiresAt };
 }
 
-/** Returns the session if it exists and has not expired; a lazily-expired session is deleted on lookup rather than left to leak memory. */
+/** Returns the session if it exists and has not expired/been revoked; a lazily-expired session is left for the next cleanup sweep rather than deleted synchronously on every read (the row itself carries no secret — only its hash — so leaving it briefly costs nothing security-relevant). */
 export function validateSession(token: unknown): LegacySession | null {
   if (typeof token !== 'string' || !token) return null;
-  const session = sessions.get(token);
-  if (!session) return null;
-  if (session.expiresAt < Date.now()) {
-    sessions.delete(token);
-    return null;
-  }
-  return session;
+  const row = legacySessionRepository.findByTokenHash(hashToken(token));
+  if (!row) return null;
+  if (row.revokedAt) return null;
+  const now = Date.now();
+  if (row.expiresAt.getTime() < now) return null;
+
+  legacySessionRepository.touchLastSeen(row.id, new Date(now));
+  return { token, userId: row.userId, email: row.email, role: row.role, issuedAt: row.createdAt.getTime(), expiresAt: row.expiresAt.getTime() };
 }
 
+/** Idempotent revocation — an unknown/already-revoked token is a silent no-op (logout never leaks whether a token was ever real). */
 export function invalidateSession(token: unknown): void {
-  if (typeof token === 'string') sessions.delete(token);
+  if (typeof token !== 'string' || !token) return;
+  legacySessionRepository.revokeByTokenHash(hashToken(token), new Date());
 }
 
-/** Test-only reset — mirrors the pattern already established for in-memory engines (SimulationEngine, GpsSimulationEngine) needing a clean slate between test files. */
+/** Test-only reset — mirrors the pattern already established for in-memory engines (SimulationEngine, GpsSimulationEngine) needing a clean slate between test files; now clears the persisted table instead of a Map. */
 export function clearAllSessions(): void {
-  sessions.clear();
+  legacySessionRepository.clear();
 }

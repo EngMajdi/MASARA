@@ -26,10 +26,18 @@ import { schools as schoolsTable } from './database/schema';
 import { createSession, invalidateSession } from './server/services/legacySessionService';
 import { checkLoginAllowed, recordLoginFailure, recordLoginSuccess } from './server/services/loginRateLimiter';
 import { requireLegacySession, requireLegacyRole, LEGACY_DATA_MANAGEMENT_ROLES, LEGACY_OPERATIONAL_ROLES, LEGACY_ANY_ROLE } from './server/services/legacyAuthz';
+import { securityHeaders } from './server/middleware/securityHeaders';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
+app.use(securityHeaders);
+// express.json()'s default 100kb body-size limit already bounds request
+// payload size (Phase 7G audit: no legacy/governed route accepts anything
+// close to that — the largest legitimate body is a short JSON object of
+// scalar fields) — left at its default rather than narrowed further,
+// since no route-specific risk was demonstrated to justify a tighter or
+// looser value.
 app.use(express.json());
 
 // Phase 6D — production-readiness hardening: an unhandled promise
@@ -1112,6 +1120,24 @@ ${buses.map(b => `- ${b.busNumber} (${b.plateNumber}): السائق ${b.driverNa
     console.error('Run Agent endpoint error:', err);
     res.status(500).json({ error: 'فشل تشغيل وكيل الذكاء الاصطناعي' });
   }
+});
+
+// Phase 7G — production request safety. express.json() throws a raw
+// SyntaxError on a malformed JSON body; without a handler here, Express's
+// own default error handler serves an HTML page (with a stack trace
+// outside NODE_ENV=production) instead of the JSON error shape every
+// endpoint in this API already returns. This also serves as a last-resort
+// safety net for any other synchronous throw that escaped a route's own
+// try/catch — never a stack trace, never internal error detail, either
+// way. Registered after every API route above and before static/Vite
+// serving below, so it only ever covers this JSON API surface.
+app.use((err: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) return next(err);
+  if (err instanceof SyntaxError && 'body' in (err as unknown as Record<string, unknown>)) {
+    return res.status(400).json({ error: 'الطلب يحتوي على بيانات JSON غير صالحة.' });
+  }
+  console.error('Unhandled request error:', err);
+  res.status(500).json({ error: 'حدث خطأ غير متوقع في الخادم.' });
 });
 
 // ----------------- VITE / STATIC SERVING ----------------- //

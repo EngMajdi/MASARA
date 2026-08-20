@@ -554,3 +554,74 @@ export const userContacts = sqliteTable(
     userChannelIdx: index('user_contacts_user_channel_idx').on(table.userId, table.channel),
   })
 );
+
+// ---------------------------------------------------------------------------
+// Phase 7G — production infrastructure hardening. Two small, additive
+// tables giving the legacy session/rate-limit boundary (server/services/
+// legacySessionService.ts, loginRateLimiter.ts — Phase 7A) the same
+// persistence multi-instance deployment requires, replacing their
+// in-memory Maps without changing either file's exported function
+// signatures or server.ts's call sites at all.
+//
+// NO FOREIGN KEY on legacySessions.userId (deliberate, audited — see the
+// table's own comment below): this database runs with foreign_keys=ON
+// (database/client.ts), and the legacy identity these sessions belong to
+// is NOT the governed `users` table above. server.ts's own in-memory
+// `users` array is a separate, never-persisted Phase-1 identity store
+// (join key: email, the same cross-store correlation every governed route
+// has used since Phase 3A); a freshly `/api/auth/register`-ed legacy user
+// exists ONLY in that in-memory array, with no governed-table counterpart
+// at all. An enforced FK here would throw the moment such a user's
+// session is persisted. This is the same "do not fabricate a relationship
+// the schema cannot honestly support" discipline Phase 7A's own audit
+// already applied to legacy resource ownership — applied here to session
+// ownership specifically, and documented rather than worked around.
+export const legacySessions = sqliteTable(
+  'legacy_sessions',
+  {
+    id: id(),
+    userId: text('user_id').notNull(),
+    email: text('email').notNull(),
+    role: text('role').notNull(),
+    // SHA-256, deliberately NOT the scrypt+salt convention used elsewhere
+    // in this codebase for PASSWORDS/device secrets. A session token is
+    // already a 256-bit cryptographically random value (randomBytes(32)) —
+    // unlike a password, it needs no memory/CPU-hard KDF stretching to
+    // resist guessing. It DOES need a deterministic hash: every request
+    // must look up its session by an exact `WHERE token_hash = ?` match,
+    // which a per-call-random-salted KDF (scrypt/bcrypt) cannot support at
+    // all without re-hashing against every stored row. The raw token
+    // itself is never persisted — only this deterministic hash, so a
+    // database read (backup, replica, breach) can never recover a usable
+    // token.
+    tokenHash: text('token_hash').notNull(),
+    createdAt: createdAt(),
+    expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+    lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }),
+    revokedAt: integer('revoked_at', { mode: 'timestamp' }),
+  },
+  (table) => ({
+    tokenHashUnique: uniqueIndex('legacy_sessions_token_hash_unique').on(table.tokenHash),
+    userIdx: index('legacy_sessions_user_id_idx').on(table.userId),
+    expiresAtIdx: index('legacy_sessions_expires_at_idx').on(table.expiresAt),
+  })
+);
+
+// Phase 7G — persistent login-attempt/lockout state (was an in-memory Map
+// in loginRateLimiter.ts). One row per email actively being tracked; a row
+// is deleted entirely on a successful login (not zeroed and kept), so
+// storage stays bounded to "emails with a currently-relevant attempt
+// history" — the same bound the in-memory Map already had.
+export const legacyLoginAttempts = sqliteTable(
+  'legacy_login_attempts',
+  {
+    id: id(),
+    email: text('email').notNull(), // already normalized (trim + lowercase) before storage — the same keyFor() convention loginRateLimiter.ts already used
+    failures: integer('failures').notNull().default(0),
+    lockedUntil: integer('locked_until', { mode: 'timestamp' }),
+    updatedAt: updatedAt(),
+  },
+  (table) => ({
+    emailUnique: uniqueIndex('legacy_login_attempts_email_unique').on(table.email),
+  })
+);
