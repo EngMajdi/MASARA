@@ -23,10 +23,12 @@ import { contactRouter } from './server/routes/contactRoutes';
 import { hashPassword, verifyPassword } from './server/services/legacyAuthCredentials';
 import { db } from './database/client';
 import { schools as schoolsTable } from './database/schema';
-import { createSession, invalidateSession } from './server/services/legacySessionService';
+import { createSession, invalidateSession, invalidateAllSessionsForUser } from './server/services/legacySessionService';
 import { checkLoginAllowed, recordLoginFailure, recordLoginSuccess } from './server/services/loginRateLimiter';
 import { requireLegacySession, requireLegacyRole, LEGACY_DATA_MANAGEMENT_ROLES, LEGACY_OPERATIONAL_ROLES, LEGACY_ANY_ROLE } from './server/services/legacyAuthz';
 import { securityHeaders } from './server/middleware/securityHeaders';
+import { validatePasswordPolicy } from './server/services/passwordPolicy';
+import { legacyUserRepository } from './server/repositories/legacyUserRepository';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -87,23 +89,22 @@ let routes = [...INITIAL_ROUTES];
 let notifications = [...INITIAL_NOTIFICATIONS];
 let workflowSteps = [...INITIAL_WORKFLOW_STEPS];
 
-// User accounts in-memory database. Phase 6D: passwordHash, never
-// plaintext password — same scrypt+salt convention as the governed
-// `users` table's own passwordHash column (database/seed/seed.ts), now
-// actually enforced here via verifyPassword (it previously was not: this
-// legacy store never checked the governed column at all — see
-// server/services/authz.ts's join-by-email notes).
-let users = [
-  { id: 'u-1', name: 'أحمد بن سيف البوسعيدي', email: 'parent@masara.om', passwordHash: hashPassword('password123'), role: 'parent' },
-  // Aligned with the governed Drizzle `users` row for driver1 (Journey Core,
-  // Phase 3A) — same person, same name — so the legacy demo login resolves
-  // to a real backend identity for the Driver Journey Console (Phase 3B).
-  // admin@masara.om/school@masara.om already coincided between the two
-  // stores by design; driver did not until this change.
-  { id: 'u-2', name: 'الكابتن سعيد بن حمد البوسعيدي', email: 'driver1@masara.om', passwordHash: hashPassword('password123'), role: 'driver' },
-  { id: 'u-3', name: 'إدارة مدرسة المسار الدولية (مسقط)', email: 'school@masara.om', passwordHash: hashPassword('password123'), role: 'school' },
-  { id: 'u-4', name: 'المشرف العام - مركز مسارَا الذكي', email: 'admin@masara.om', passwordHash: hashPassword('password123'), role: 'admin' }
-];
+// Phase 6D: passwordHash, never plaintext password — same scrypt+salt
+// convention as the governed `users` table's own passwordHash column
+// (database/seed/seed.ts).
+//
+// Phase 7H: this used to be a plain in-memory array (`let users = [...]`,
+// seeded inline, mutated in place by register/change-password). Moved to
+// the database (legacyUserRepository -> the new legacy_users table,
+// seeded by database/seed/seed.ts with the exact same 4 fixed ids) after
+// this phase's own mandated multi-instance test found the in-memory
+// version was invisible across server processes: a password changed via
+// one process kept the OLD password valid and the NEW one rejected on
+// every other process. Sessions/rate-limits already got this treatment in
+// Phase 7G; the credential store itself had not, until this defect was
+// live-discovered. Every call site below now reads/writes
+// legacyUserRepository instead of a local array — no other behavior
+// changed.
 
 // Gemini Client Lazy Initializer
 function getGeminiClient(): GoogleGenAI | null {
@@ -204,7 +205,7 @@ app.post('/api/auth/login', (req, res) => {
     });
   }
 
-  const user = users.find(u => u.email.toLowerCase() === email.toLowerCase().trim());
+  const user = legacyUserRepository.findByEmail(email);
 
   if (!user || typeof password !== 'string' || !verifyPassword(password, user.passwordHash)) {
     recordLoginFailure(email);
@@ -234,27 +235,34 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ success: true });
 });
 
-// Authentication Register Endpoint
+// Authentication Register Endpoint. Phase 7H — password policy enforced
+// before hashing/persistence: an invalid password never partially creates
+// a user (this check runs before the existing-email check and before any
+// legacyUserRepository.create call), returns a sanitized client error,
+// and the rejected password itself is never logged or stored.
 app.post('/api/auth/register', (req, res) => {
   const { name, email, password, role } = req.body;
   if (!name || !email || !password) {
     return res.status(400).json({ success: false, error: 'يرجى تقديم جميع البيانات المطلوبة' });
   }
 
-  const existing = users.find(u => u.email.toLowerCase() === email.toLowerCase().trim());
+  const policyCheck = validatePasswordPolicy(password);
+  if (policyCheck.valid === false) {
+    return res.status(400).json({ success: false, error: policyCheck.error });
+  }
+
+  const existing = legacyUserRepository.findByEmail(email);
   if (existing) {
     return res.status(400).json({ success: false, error: 'هذا البريد الإلكتروني مسجل بالفعل' });
   }
 
-  const newUser = {
-    id: `usr-${Date.now()}`,
+  const newUser = legacyUserRepository.create({
     name,
     email: email.trim(),
     passwordHash: hashPassword(password),
     role: role || 'parent'
-  };
+  });
 
-  users.push(newUser);
   const session = createSession({ id: newUser.id, email: newUser.email, role: newUser.role });
 
   res.json({
@@ -269,6 +277,48 @@ app.post('/api/auth/register', (req, res) => {
     sessionToken: session.token,
     sessionExpiresAt: new Date(session.expiresAt).toISOString(),
   });
+});
+
+// Phase 7H — self-service authenticated password change. Identity comes
+// exclusively from the existing legacy session boundary
+// (requireLegacySession) — never from a client-supplied userId/email in
+// the body, so caller A can never change caller B's password by spoofing
+// an identity field. Errors are deliberately generic/sanitized; neither
+// password is ever logged, echoed back, or partially persisted.
+app.post('/api/auth/change-password', (req, res) => {
+  const guard = requireLegacySession(req.headers.authorization);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
+  const { currentPassword, newPassword } = req.body;
+  if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || !currentPassword || !newPassword) {
+    return res.status(400).json({ success: false, error: 'يرجى تقديم كلمة المرور الحالية والجديدة.' });
+  }
+
+  const user = legacyUserRepository.findById(guard.user.id);
+  if (!user || !verifyPassword(currentPassword, user.passwordHash)) {
+    return res.status(401).json({ success: false, error: 'كلمة المرور الحالية غير صحيحة.' });
+  }
+
+  const policyCheck = validatePasswordPolicy(newPassword);
+  if (policyCheck.valid === false) {
+    return res.status(400).json({ success: false, error: policyCheck.error });
+  }
+
+  if (verifyPassword(newPassword, user.passwordHash)) {
+    return res.status(400).json({ success: false, error: 'يجب أن تختلف كلمة المرور الجديدة عن الحالية.' });
+  }
+
+  legacyUserRepository.updatePasswordHash(user.id, hashPassword(newPassword));
+
+  // SESSION INVALIDATION DECISION (see legacySessionService.ts): every
+  // session for this user is revoked, including the one making this very
+  // request. The client's next authenticated call fails exactly like any
+  // other expired/revoked session already does today — no new
+  // client-facing state, and a fresh login is the only way back in,
+  // which is itself a real proof the new password works.
+  invalidateAllSessionsForUser(user.id);
+
+  res.json({ success: true });
 });
 
 // Phase 7A — every legacy read below requires any authenticated session

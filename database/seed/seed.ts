@@ -25,6 +25,7 @@ import {
   etaAccuracyObservations,
   notifications,
   userContacts,
+  legacyUsers,
 } from '../schema';
 import { DEMO_PARENT_PHONE_BY_EMAIL } from '../../server/domain/parentAccessContract';
 import { normalizeContactValue } from '../../server/services/ContactNormalization';
@@ -55,6 +56,14 @@ function clearAll() {
   // again).
   // Phase 6A: user_contacts references users — must go before it (same
   // recurring bug class, guarded again).
+  // Phase 7H: legacy_users has no FK dependents (deliberately unconstrained
+  // — see its own schema comment), so its position doesn't matter for FK
+  // order, but it IS seed data (unlike legacy_sessions/legacy_login_attempts,
+  // which are pure runtime state seed.ts never touches) and was the exact
+  // "new table forgotten by clearAll" bug this comment block already warns
+  // about, caught by tests/database/seedIdempotency.test.ts exactly as
+  // designed.
+  db.delete(legacyUsers).run();
   db.delete(userContacts).run();
   db.delete(notifications).run();
   db.delete(etaAccuracyObservations).run();
@@ -125,6 +134,23 @@ export function seed() {
     { id: crypto.randomUUID(), schoolId: school.id, name: 'أحمد بن سيف البوسعيدي', email: 'parent@masara.om', role: 'parent' },
   ].map((u) => ({ ...u, passwordHash: hashPassword('password123') }));
   db.insert(users).values(seedUsers).run();
+
+  // Phase 7H — the legacy identity store (server.ts's `/api/auth/*`
+  // routes) was moved from an in-memory array to this table so a password
+  // change is visible across every server process, not just the one that
+  // handled the request. Same 4 fixed ids server.ts's array always used
+  // (u-1..u-4) — every existing session/test/fixture that already
+  // references these ids keeps working unchanged. Deliberately a
+  // SEPARATE row set from the governed `users` table above (same
+  // email-per-account, different id namespace) — this reseeds the exact
+  // pre-existing legacy store, it does not unify the two identity models.
+  const seedLegacyUsers = [
+    { id: 'u-1', name: 'أحمد بن سيف البوسعيدي', email: 'parent@masara.om', role: 'parent' },
+    { id: 'u-2', name: 'الكابتن سعيد بن حمد البوسعيدي', email: 'driver1@masara.om', role: 'driver' },
+    { id: 'u-3', name: 'إدارة مدرسة المسار الدولية (مسقط)', email: 'school@masara.om', role: 'school' },
+    { id: 'u-4', name: 'المشرف العام - مركز مسارَا الذكي', email: 'admin@masara.om', role: 'admin' },
+  ].map((u) => ({ ...u, passwordHash: hashPassword('password123') }));
+  db.insert(legacyUsers).values(seedLegacyUsers).run();
 
   // Phase 6A — one minimal, deterministic demo contact for the seeded demo
   // parent: their EMAIL, already verified (spec's explicit seed-only

@@ -111,3 +111,25 @@ export function invalidateSession(token: unknown): void {
 export function clearAllSessions(): void {
   legacySessionRepository.clear();
 }
+
+/**
+ * Phase 7H — SESSION INVALIDATION DECISION (explicit, per spec, not left
+ * ambiguous): a successful password change revokes ALL of the user's
+ * sessions, INCLUDING the one that performed the change — not "all other
+ * sessions plus a replacement token for the current request." Chosen as
+ * the simplest secure option: it requires no "issue a replacement token
+ * mid-request" plumbing, and forcing a fresh login after a password
+ * change is itself a genuine end-to-end proof that the new password
+ * actually works, rather than trusting the client's own claim that it
+ * does. The caller (the change-password route) is expected to respond
+ * with success and let the client's own next authenticated call fail and
+ * prompt a re-login — exactly how an expired/revoked session already
+ * behaves today, no new client-facing state to introduce.
+ *
+ * Reuses the exact same persisted revocation Phase 7G already built
+ * (revokedAt on the existing legacy_sessions table) — no tokenVersion
+ * column, no second invalidation mechanism.
+ */
+export function invalidateAllSessionsForUser(userId: string): void {
+  legacySessionRepository.revokeAllByUserId(userId, new Date());
+}

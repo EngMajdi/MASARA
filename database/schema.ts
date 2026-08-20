@@ -625,3 +625,43 @@ export const legacyLoginAttempts = sqliteTable(
     emailUnique: uniqueIndex('legacy_login_attempts_email_unique').on(table.email),
   })
 );
+
+// Phase 7H — production security audit finding (discovered via this
+// phase's own mandated live multi-instance test, spec Step 9): the legacy
+// credential store (server.ts's `let users = [...]`) was still a plain
+// in-memory array, never persisted — unlike legacySessions/
+// legacyLoginAttempts (Phase 7G), which were. A password change made via
+// one server process was therefore invisible to every other process: the
+// old password kept working and the new one didn't, on any instance that
+// didn't happen to handle the change-password request. That is a real
+// production-correctness defect directly caused by this phase's own new
+// mutation path (password change), not a hypothetical — live-verified
+// with two independent processes before this table was added, then fixed
+// by the same treatment already proven for sessions/rate-limits: persist
+// it, keep every exported service-layer function's shape identical.
+//
+// This is NOT the governed `users` table above and does not touch it or
+// its FK graph — it is the same Phase-1 legacy identity store server.ts
+// has always had (join key: email, same cross-store correlation every
+// governed route already uses), now durable instead of in-memory. No FK
+// is added FROM legacySessions/legacyLoginAttempts TO this table: those
+// were deliberately left unconstrained in Phase 7G for the same reason
+// this table's own existence was only just discovered to be necessary —
+// retrofitting a firm FK relationship after the fact is exactly the kind
+// of invented-relationship risk this project avoids; the existing
+// email-based correlation remains the honest, already-proven mechanism.
+export const legacyUsers = sqliteTable(
+  'legacy_users',
+  {
+    id: id(),
+    name: text('name').notNull(),
+    email: text('email').notNull(),
+    passwordHash: text('password_hash').notNull(),
+    role: text('role').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => ({
+    emailUnique: uniqueIndex('legacy_users_email_unique').on(table.email),
+  })
+);

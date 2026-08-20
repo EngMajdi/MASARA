@@ -34,6 +34,14 @@ export const legacySessionRepository = {
       .where(and(eq(legacySessions.tokenHash, tokenHash), isNull(legacySessions.revokedAt)))
       .run(),
 
+  /** Phase 7H — revokes every currently-valid session for one user (used by password change: "revoke all sessions including current" — see legacySessionService.ts's SESSION INVALIDATION DECISION). Idempotent by construction — only touches rows still `revokedAt IS NULL`. */
+  revokeAllByUserId: (userId: string, now: Date) =>
+    db
+      .update(legacySessions)
+      .set({ revokedAt: now })
+      .where(and(eq(legacySessions.userId, userId), isNull(legacySessions.revokedAt)))
+      .run(),
+
   /**
    * Bounded batch delete of rows that are long expired or long revoked —
    * never touches a currently-valid session. Raw SQL for the LIMIT-via-
