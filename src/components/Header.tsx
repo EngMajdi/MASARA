@@ -31,6 +31,7 @@ interface HeaderProps {
   onOpenNotifications: () => void;
   onOpenAdvisor: () => void;
   onOpenDataManagement: () => void;
+  onOpenEmployeeManagement: () => void;
   onOpenApprovalCenter: () => void;
   onOpenSimulationCenter: () => void;
   onOpenOperationsFeed: () => void;
@@ -48,6 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenNotifications,
   onOpenAdvisor,
   onOpenDataManagement,
+  onOpenEmployeeManagement,
   onOpenApprovalCenter,
   onOpenSimulationCenter,
   onOpenOperationsFeed,
@@ -60,6 +62,10 @@ export const Header: React.FC<HeaderProps> = ({
   // Only operational-approver roles see the Approval Center entry point
   // (spec Phase 2A §20 — parents/drivers must not approve AI recommendations).
   const canApprove = currentUser?.role === 'admin' || currentUser?.role === 'school';
+  // Phase 8B — employee lifecycle management (create/deactivate/reset
+  // credential) is admin-only, narrower than canApprove above, matching
+  // LEGACY_EMPLOYEE_MANAGEMENT_ROLES on the backend.
+  const isAdmin = currentUser?.role === 'admin';
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   const roleButtons: { id: UserRole; label: string; icon: React.ReactNode; desc: string }[] = [
@@ -170,14 +176,41 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          <button
-            onClick={onOpenDataManagement}
-            className="flex items-center gap-1 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 px-2.5 py-1 rounded-lg transition-all text-xs font-semibold shadow-2xs shrink-0 min-h-[32px]"
-          >
-            <FolderPlus className="w-3.5 h-3.5 text-blue-600" />
-            <span className="hidden xs:inline">إدارة البيانات</span>
-            <span className="xs:hidden">البيانات</span>
-          </button>
+          {/* Data Management Center — create/update/delete students, buses,
+              drivers, and routes. Admin/school only: the backend already
+              enforces this (LEGACY_DATA_MANAGEMENT_ROLES on every
+              /api/students, /api/buses, /api/routes POST/DELETE route), but
+              the entry point itself was shown to every logged-in role
+              regardless — a parent or driver could open the modal even
+              though every mutation would ultimately 403. Gated here to
+              match the same canApprove pattern already used for the
+              Approval Center / Simulation Center / Operations Feed above. */}
+          {canApprove && (
+            <button
+              onClick={onOpenDataManagement}
+              className="flex items-center gap-1 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 px-2.5 py-1 rounded-lg transition-all text-xs font-semibold shadow-2xs shrink-0 min-h-[32px]"
+            >
+              <FolderPlus className="w-3.5 h-3.5 text-blue-600" />
+              <span className="hidden xs:inline">إدارة البيانات</span>
+              <span className="xs:hidden">البيانات</span>
+            </button>
+          )}
+
+          {/* Phase 8B — employee account lifecycle (create/deactivate/reset
+              credential/revoke sessions). Admin-only in the UI, matching
+              LEGACY_EMPLOYEE_MANAGEMENT_ROLES on the backend — narrower than
+              canApprove/Data Management above, since issuing a login
+              credential is a materially more sensitive action. */}
+          {isAdmin && (
+            <button
+              onClick={onOpenEmployeeManagement}
+              className="flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-2.5 py-1 rounded-lg transition-all text-xs font-semibold shadow-2xs shrink-0 min-h-[32px]"
+            >
+              <Users className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="hidden xs:inline">إدارة الموظفين</span>
+              <span className="xs:hidden">الموظفون</span>
+            </button>
+          )}
 
           <button
             onClick={onOpenAdvisor}

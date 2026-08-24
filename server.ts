@@ -18,7 +18,7 @@ import { etaRouter } from './server/routes/etaRoutes';
 import { safetyFindingRouter } from './server/routes/safetyFindingRoutes';
 import { parentRouter } from './server/routes/parentRoutes';
 import { contactRouter } from './server/routes/contactRoutes';
-import { hashPassword, verifyPassword } from './server/services/legacyAuthCredentials';
+import { hashPassword, verifyPassword, generateTemporaryPassword } from './server/services/legacyAuthCredentials';
 import { db } from './database/client';
 import { schools as schoolsTable } from './database/schema';
 import { createSession, invalidateSession, invalidateAllSessionsForUser } from './server/services/legacySessionService';
@@ -30,7 +30,8 @@ import {
   requireLegacyStudentOwnership,
   LEGACY_DATA_MANAGEMENT_ROLES,
   LEGACY_OPERATIONAL_ROLES,
-  LEGACY_ANY_ROLE
+  LEGACY_ANY_ROLE,
+  LEGACY_EMPLOYEE_MANAGEMENT_ROLES
 } from './server/services/legacyAuthz';
 import { securityHeaders } from './server/middleware/securityHeaders';
 import { validatePasswordPolicy } from './server/services/passwordPolicy';
@@ -204,7 +205,10 @@ app.get('/api/all-data', (req, res) => {
 // session token — the one authenticated session boundary the newly
 // protected legacy surface below requires (spec Step 1/4/5).
 app.post('/api/auth/login', (req, res) => {
-  const { email, password, role } = req.body;
+  // Note: the client may still send a `role` field (used client-side only,
+  // to select which demo account to display before login) — it is
+  // deliberately never read here. See the SECURITY FIX comment below.
+  const { email, password } = req.body;
 
   if (typeof email !== 'string' || !email) {
     return res.status(401).json({ success: false, error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' });
@@ -226,15 +230,42 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(401).json({ success: false, error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' });
   }
 
+  // Phase 8B — checked only AFTER a correct password, deliberately: the
+  // existing enumeration-safety discipline above (generic "email or
+  // password incorrect" for every failure) means a caller who does NOT
+  // know the password learns nothing about whether the account exists,
+  // let alone whether it's disabled. Only someone who already proved they
+  // hold the real credential ever sees this distinct message. Neither
+  // recordLoginFailure nor recordLoginSuccess is called here — a disabled
+  // account with a correct password is neither a real failed attempt nor
+  // a real successful one for rate-limiting purposes.
+  if (user.status === 'disabled') {
+    return res.status(403).json({ success: false, error: 'هذا الحساب معطّل حالياً. الرجاء التواصل مع إدارة المدرسة.' });
+  }
+
   recordLoginSuccess(email);
-  const session = createSession({ id: user.id, email: user.email, role: role || user.role });
+  // SECURITY FIX: the session's role must always come from the authoritative
+  // legacy_users record, never from a client-supplied request field. The
+  // previous logic here fell back to the caller's own claimed role whenever
+  // one was present in the body, so ANY authenticated caller could escalate
+  // their own session to an arbitrary role just by claiming a different one
+  // at login (live-verified: driver1's real credentials plus a falsely
+  // claimed elevated role produced a genuine session with that elevated
+  // role). The client may still send that field for its own local UI
+  // purposes; it is never read for authorization here.
+  const session = createSession({ id: user.id, email: user.email, role: user.role });
 
   const returnUser = {
     id: user.id,
     name: user.name,
     email: user.email,
-    role: role || user.role,
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200'
+    role: user.role,
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200',
+    // Phase 8B — true only for an admin-issued temporary credential the
+    // employee hasn't replaced yet. The frontend must block access to any
+    // portal until a real change-password call clears it (see
+    // /api/auth/change-password below).
+    mustChangePassword: user.mustChangePassword
   };
 
   res.json({ success: true, user: returnUser, sessionToken: session.token, sessionExpiresAt: new Date(session.expiresAt).toISOString() });
@@ -255,7 +286,7 @@ app.post('/api/auth/logout', (req, res) => {
 // legacyUserRepository.create call), returns a sanitized client error,
 // and the rejected password itself is never logged or stored.
 app.post('/api/auth/register', (req, res) => {
-  const { name, email, password, role } = req.body;
+  const { name, email, password } = req.body;
   if (!name || !email || !password) {
     return res.status(400).json({ success: false, error: 'يرجى تقديم جميع البيانات المطلوبة' });
   }
@@ -270,11 +301,19 @@ app.post('/api/auth/register', (req, res) => {
     return res.status(400).json({ success: false, error: 'هذا البريد الإلكتروني مسجل بالفعل' });
   }
 
+  // SECURITY FIX: self-registration is always 'parent' — staff roles
+  // (driver/school/admin) are never client-selectable at signup. The
+  // previous logic here trusted a role claimed by the caller outright
+  // whenever the request supplied one, letting anyone with no prior
+  // credentials create a brand-new elevated-role account with zero
+  // verification (live-verified). Staff accounts exist only via the fixed
+  // seed data; there is no legitimate self-service path to them in this
+  // codebase.
   const newUser = legacyUserRepository.create({
     name,
     email: email.trim(),
     passwordHash: hashPassword(password),
-    role: role || 'parent'
+    role: 'parent'
   });
 
   const session = createSession({ id: newUser.id, email: newUser.email, role: newUser.role });
@@ -286,7 +325,8 @@ app.post('/api/auth/register', (req, res) => {
       name: newUser.name,
       email: newUser.email,
       role: newUser.role,
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200'
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200',
+      mustChangePassword: false
     },
     sessionToken: session.token,
     sessionExpiresAt: new Date(session.expiresAt).toISOString(),
@@ -324,6 +364,15 @@ app.post('/api/auth/change-password', (req, res) => {
 
   legacyUserRepository.updatePasswordHash(user.id, hashPassword(newPassword));
 
+  // Phase 8B — a successful password change is exactly the completion
+  // signal for an admin-issued temporary credential: clear the forced-
+  // change flag unconditionally (a harmless no-op for the vast majority of
+  // calls where it was already false, e.g. every existing parent
+  // self-service password change).
+  if (user.mustChangePassword) {
+    legacyUserRepository.setMustChangePassword(user.id, false);
+  }
+
   // SESSION INVALIDATION DECISION (see legacySessionService.ts): every
   // session for this user is revoked, including the one making this very
   // request. The client's next authenticated call fails exactly like any
@@ -333,6 +382,231 @@ app.post('/api/auth/change-password', (req, res) => {
   invalidateAllSessionsForUser(user.id);
 
   res.json({ success: true });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 8B — Employee Account Management & Provisioning. Admin-only
+// (LEGACY_EMPLOYEE_MANAGEMENT_ROLES, deliberately narrower than
+// LEGACY_DATA_MANAGEMENT_ROLES — see that constant's own comment).
+// No email dependency anywhere in this block: every temporary credential
+// is returned once, directly in the response, to the admin who requested
+// it — never sent anywhere, never logged, never re-servable.
+// ---------------------------------------------------------------------------
+
+function toEmployeeView(user: NonNullable<ReturnType<typeof legacyUserRepository.findById>>) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    status: user.status,
+    mustChangePassword: user.mustChangePassword,
+    createdByUserId: user.createdByUserId,
+    createdAt: user.createdAt,
+  };
+}
+
+const EMPLOYEE_ROLES = ['driver', 'school', 'admin'] as const;
+
+// Create a new employee account. Never 'parent' — parents are self-service
+// only (POST /api/auth/register), a deliberate Phase 8A security fix this
+// route must not reopen.
+app.post('/api/admin/employees', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_EMPLOYEE_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
+  const { name, email, role } = req.body;
+  if (typeof name !== 'string' || !name.trim() || typeof email !== 'string' || !email.trim()) {
+    return res.status(400).json({ success: false, error: 'يرجى تقديم الاسم والبريد الإلكتروني.' });
+  }
+  if (typeof role !== 'string' || !(EMPLOYEE_ROLES as readonly string[]).includes(role)) {
+    return res.status(400).json({ success: false, error: 'الدور يجب أن يكون سائق أو مدرسة أو مشرف عام.' });
+  }
+
+  const existing = legacyUserRepository.findByEmail(email);
+  if (existing) {
+    return res.status(400).json({ success: false, error: 'هذا البريد الإلكتروني مسجل بالفعل' });
+  }
+
+  const temporaryPassword = generateTemporaryPassword();
+  const newEmployee = legacyUserRepository.create({
+    name: name.trim(),
+    email: email.trim(),
+    passwordHash: hashPassword(temporaryPassword),
+    role,
+    status: 'active',
+    mustChangePassword: true,
+    createdByUserId: guard.user.id,
+  });
+
+  res.json({
+    success: true,
+    employee: toEmployeeView(legacyUserRepository.findById(newEmployee.id)!),
+    // Shown exactly once — never persisted in plaintext, never returned
+    // by any other endpoint. The admin is responsible for relaying it to
+    // the employee out-of-band (in person, phone) — no email provider is
+    // configured in this deployment.
+    temporaryPassword,
+  });
+});
+
+// List every employee (driver/school/admin) — never the seeded parent row
+// via this surface, and never passwordHash. Deliberately readable by
+// LEGACY_DATA_MANAGEMENT_ROLES (admin/school), wider than the
+// admin-only mutation routes below: 'school' needs this list to populate
+// the driver/parent assignment dropdowns in DataManagementModal, but
+// still cannot create/deactivate/reset credentials — read vs. write are
+// different sensitivity levels here, not the same action.
+app.get('/api/admin/employees', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_DATA_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
+  const employees = legacyUserRepository
+    .findAll()
+    .filter((u) => (EMPLOYEE_ROLES as readonly string[]).includes(u.role))
+    .map(toEmployeeView);
+  res.json({ success: true, employees });
+});
+
+// Parents are explicitly NOT "employees" (self-service accounts, never
+// admin-provisioned) but the parent-assignment dropdown in
+// DataManagementModal still needs to list real parent accounts to assign
+// students to — a small, separately-scoped read, same guard as the
+// employees list above.
+app.get('/api/admin/parents', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_DATA_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
+  const parents = legacyUserRepository
+    .findAll()
+    .filter((u) => u.role === 'parent')
+    .map(toEmployeeView);
+  res.json({ success: true, parents });
+});
+
+function requireExistingEmployee(id: string, res: express.Response) {
+  const target = legacyUserRepository.findById(id);
+  if (!target || !(EMPLOYEE_ROLES as readonly string[]).includes(target.role)) {
+    res.status(404).json({ success: false, error: 'الموظف غير موجود.' });
+    return null;
+  }
+  return target;
+}
+
+app.patch('/api/admin/employees/:id/deactivate', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_EMPLOYEE_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
+  const { id } = req.params;
+  const target = requireExistingEmployee(id, res);
+  if (!target) return;
+
+  if (target.id === guard.user.id) {
+    return res.status(400).json({ success: false, error: 'لا يمكنك تعطيل حسابك الخاص.' });
+  }
+  if (target.role === 'admin') {
+    const activeAdmins = legacyUserRepository.findAll().filter((u) => u.role === 'admin' && u.status === 'active');
+    if (activeAdmins.length <= 1) {
+      return res.status(400).json({ success: false, error: 'لا يمكن تعطيل آخر حساب مشرف عام نشط في النظام.' });
+    }
+  }
+
+  legacyUserRepository.updateStatus(id, 'disabled');
+  invalidateAllSessionsForUser(id);
+  res.json({ success: true, employee: toEmployeeView(legacyUserRepository.findById(id)!) });
+});
+
+app.patch('/api/admin/employees/:id/activate', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_EMPLOYEE_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
+  const { id } = req.params;
+  if (!requireExistingEmployee(id, res)) return;
+
+  legacyUserRepository.updateStatus(id, 'active');
+  res.json({ success: true, employee: toEmployeeView(legacyUserRepository.findById(id)!) });
+});
+
+// The "forgot password" substitute — there is no email channel to prove
+// requester ownership, so credential recovery is always admin-initiated.
+app.post('/api/admin/employees/:id/reset-credential', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_EMPLOYEE_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
+  const { id } = req.params;
+  if (!requireExistingEmployee(id, res)) return;
+
+  const temporaryPassword = generateTemporaryPassword();
+  legacyUserRepository.updatePasswordHash(id, hashPassword(temporaryPassword));
+  legacyUserRepository.setMustChangePassword(id, true);
+  invalidateAllSessionsForUser(id);
+
+  res.json({ success: true, employee: toEmployeeView(legacyUserRepository.findById(id)!), temporaryPassword });
+});
+
+// Force a re-login without disabling the account (e.g. suspected
+// shared-device use) — distinct from deactivate, which also flips status.
+app.post('/api/admin/employees/:id/revoke-sessions', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_EMPLOYEE_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
+  const { id } = req.params;
+  if (!requireExistingEmployee(id, res)) return;
+
+  invalidateAllSessionsForUser(id);
+  res.json({ success: true });
+});
+
+// Resource ownership assignment — the gap Phase 7K deliberately left open
+// ("no assignment mechanism exists"). LEGACY_DATA_MANAGEMENT_ROLES
+// (admin/school), not LEGACY_EMPLOYEE_MANAGEMENT_ROLES: this is an
+// operational bus/student-data action, the same class as the existing
+// create/delete routes for those resources, not a credential-issuance
+// action.
+app.patch('/api/buses/:id/assign-driver', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_DATA_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
+  const { id } = req.params;
+  const { driverId } = req.body;
+  const bus = legacyBusRepository.findById(id);
+  if (!bus) return res.status(404).json({ success: false, error: 'الحافلة غير موجودة.' });
+
+  if (driverId !== null) {
+    if (typeof driverId !== 'string' || !driverId) {
+      return res.status(400).json({ success: false, error: 'معرّف السائق غير صالح.' });
+    }
+    const driver = legacyUserRepository.findById(driverId);
+    if (!driver || driver.role !== 'driver' || driver.status !== 'active') {
+      return res.status(400).json({ success: false, error: 'يجب أن يشير معرّف السائق إلى حساب سائق نشط وحقيقي.' });
+    }
+  }
+
+  const updated = legacyBusRepository.updateDriverId(id, driverId);
+  res.json({ success: true, bus: updated });
+});
+
+app.patch('/api/students/:id/assign-parent', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_DATA_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
+  const { id } = req.params;
+  const { parentId } = req.body;
+  const student = legacyStudentRepository.findById(id);
+  if (!student) return res.status(404).json({ success: false, error: 'الطالب غير موجود.' });
+
+  if (parentId !== null) {
+    if (typeof parentId !== 'string' || !parentId) {
+      return res.status(400).json({ success: false, error: 'معرّف ولي الأمر غير صالح.' });
+    }
+    const parent = legacyUserRepository.findById(parentId);
+    if (!parent || parent.role !== 'parent' || parent.status !== 'active') {
+      return res.status(400).json({ success: false, error: 'يجب أن يشير معرّف ولي الأمر إلى حساب ولي أمر نشط وحقيقي.' });
+    }
+  }
+
+  const updated = legacyStudentRepository.updateParentId(id, parentId);
+  res.json({ success: true, student: updated });
 });
 
 // Phase 7A — every legacy read below requires any authenticated session

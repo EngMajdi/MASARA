@@ -37,7 +37,19 @@ export const DriverPortal: React.FC<DriverPortalProps> = ({
   onStartRoute,
   currentUser
 }) => {
-  const activeBus = buses[0]; // Bus 101
+  // Scoped to the logged-in driver's own bus (legacy_buses.driverId,
+  // enforced server-side since Phase 7K). BUG FIX: this used to fall back
+  // to `buses[0]` — a stranger's bus — whenever the driver owned none,
+  // exactly the same class of privacy leak found and fixed in
+  // ParentPortal.tsx (a driver with no assigned bus is a real, reachable
+  // state, not hypothetical: any future driver account without an
+  // assignment would otherwise be shown another driver's bus, students,
+  // and route as if it were their own). Only ever fall back while the app
+  // is still loading data for the first time (buses.length === 0); once
+  // real data has loaded, owning zero buses is treated as its own honest
+  // "no bus assigned" state below, never masked by someone else's bus.
+  const ownedBus = buses.find((b) => b.driverId === currentUser?.id);
+  const activeBus = buses.length === 0 ? buses[0] : ownedBus;
   const activeRoute = activeBus ? routes.find((r) => r.busId === activeBus.id) || routes[0] : routes[0];
   const busStudents = activeBus ? students.filter((s) => s.busId === activeBus.id) : [];
 
@@ -50,6 +62,17 @@ export const DriverPortal: React.FC<DriverPortalProps> = ({
     seatbelts: true,
     studentsList: true
   });
+
+  if (buses.length > 0 && !ownedBus) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center space-y-2">
+        <p className="text-slate-700 font-bold">لا توجد حافلة مسندة لحسابك حالياً</p>
+        <p className="text-slate-500 text-sm font-medium">
+          الرجاء التواصل مع إدارة المدرسة لإتمام إسناد حافلة ومسار لك.
+        </p>
+      </div>
+    );
+  }
 
   if (!activeBus || !activeRoute) {
     return (

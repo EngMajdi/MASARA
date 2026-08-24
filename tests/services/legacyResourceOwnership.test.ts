@@ -62,7 +62,7 @@ describe('legacyBusRepository — persistence replacing server.ts\'s old in-memo
     expect(legacyBusRepository.findAll().length).toBe(4);
   });
 
-  it('create() always sets driverId to null, even if a caller tries to smuggle one in — no trusted assignment mechanism exists yet', () => {
+  it('create() always sets driverId to null, even if a caller tries to smuggle one in — assignment is Phase 8B\'s dedicated PATCH /api/buses/:id/assign-driver action, never bundled into creation', () => {
     const input = {
       busNumber: 'حافلة 998',
       plateNumber: 'ت س 222',

@@ -293,6 +293,35 @@ describe('Source-scan governance guards (spec Step 8 mandatory)', () => {
     expect(block).toMatch(/createSession\(/);
   });
 
+  // Regression guard for a real, live-verified privilege-escalation bug:
+  // /api/auth/login used to build the session with `role: role || user.role`
+  // — a client-supplied `role` field in the request body took priority over
+  // the actual database role, so any authenticated user's own real
+  // credentials could mint an admin session just by claiming `role:"admin"`
+  // at login. /api/auth/register had the matching bug (`role: role ||
+  // 'parent'`), letting an unauthenticated caller self-register as admin.
+  // Fixed to always use the authoritative role; these tests must never pass
+  // again if that regresses.
+  it('the login route never lets a client-supplied role field override the database role', () => {
+    const loginStart = serverSource.indexOf("app.post('/api/auth/login'");
+    const loginEnd = serverSource.indexOf("app.post('/api/auth/logout'");
+    const block = serverSource.slice(loginStart, loginEnd);
+    expect(block).not.toMatch(/role\s*\|\|\s*user\.role/);
+    expect(block).not.toMatch(/req\.body\.role/);
+    expect(block.match(/role:\s*user\.role/g)?.length).toBe(2); // createSession + returnUser
+  });
+
+  it('the register route always creates a new legacy user with role "parent", regardless of any client-supplied role', () => {
+    const registerStart = serverSource.indexOf("app.post('/api/auth/register'");
+    const registerEnd = serverSource.indexOf("app.post('/api/auth/change-password'");
+    expect(registerStart).toBeGreaterThan(-1);
+    expect(registerEnd).toBeGreaterThan(registerStart);
+    const block = serverSource.slice(registerStart, registerEnd);
+    expect(block).not.toMatch(/role\s*\|\|\s*'parent'/);
+    expect(block).not.toMatch(/req\.body\.role/);
+    expect(block).toMatch(/role:\s*'parent'/);
+  });
+
   it('agentRoutes.ts governance reads (recommendations/audit-logs/predictions) require requireOperationalUser', () => {
     for (const pattern of [
       "agentRouter.get('/api/recommendations'",

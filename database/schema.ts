@@ -650,6 +650,15 @@ export const legacyLoginAttempts = sqliteTable(
 // retrofitting a firm FK relationship after the fact is exactly the kind
 // of invented-relationship risk this project avoids; the existing
 // email-based correlation remains the honest, already-proven mechanism.
+// Phase 8B — status/mustChangePassword/createdByUserId support employee
+// provisioning (server.ts's /api/admin/employees/*): status gates login
+// (a disabled employee cannot authenticate); mustChangePassword forces a
+// real password change before an admin-issued temporary credential can be
+// used for anything else; createdByUserId is an audit-trail-only field
+// (never an FK — self-registered parents and the four seeded demo
+// accounts have no creator), matching the same "do not fabricate a
+// relationship the schema cannot honestly support" discipline already
+// applied to legacySessions.userId and legacy_students.busId.
 export const legacyUsers = sqliteTable(
   'legacy_users',
   {
@@ -658,6 +667,9 @@ export const legacyUsers = sqliteTable(
     email: text('email').notNull(),
     passwordHash: text('password_hash').notNull(),
     role: text('role').notNull(),
+    status: text('status').notNull().default('active'),
+    mustChangePassword: integer('must_change_password', { mode: 'boolean' }).notNull().default(false),
+    createdByUserId: text('created_by_user_id'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

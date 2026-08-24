@@ -31,6 +31,8 @@ export interface AuthUser {
   avatar?: string;
   /** Phase 7A — the legacy session token issued at login, required by the newly-protected legacy surface (server.ts's /api/students, /api/buses, /api/routes, /api/ai/*, and the governance reads in agentRoutes.ts). Absent only in the offline-fallback path below, where no real server session was ever issued. */
   sessionToken?: string;
+  /** Phase 8B — true only for an admin-issued temporary credential the employee hasn't replaced yet. App.tsx must block access to every portal until a successful change-password call clears it. */
+  mustChangePassword?: boolean;
 }
 
 interface AuthModalProps {
@@ -193,10 +195,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         return;
       }
       setLoading(true);
+      // Self-registration is always a parent account server-side (staff
+      // roles have no self-service signup) — `role` is deliberately not
+      // sent here so the request can't even appear to be requesting one.
       fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password, role })
+        body: JSON.stringify({ name, email, password })
       })
         .then((r) => r.json())
         .then((data) => {
@@ -397,6 +402,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       className="w-full pr-10 pl-3 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white text-slate-900 text-xs transition-all"
                     />
                   </div>
+                  <p className="mt-2 text-[10.5px] text-slate-500 font-medium leading-relaxed">
+                    الحسابات الجديدة تُنشأ دائماً كحساب "ولي أمر" — حسابات السائق/المدرسة/المشرف العام حسابات موظفين ولا يمكن إنشاؤها ذاتياً.
+                  </p>
                 </div>
               )}
 

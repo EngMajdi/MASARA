@@ -69,12 +69,26 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({
   // for that prior, now-closed finding). Session-derived, never a body/URL
   // value the client could spoof.
   const parentStudents = students.filter((s) => s.parentId === currentUser?.id);
-  const [selectedStudentId, setSelectedStudentId] = useState<string>(
-    parentStudents[0]?.id || students[0]?.id || 'std-1'
-  );
+  const [selectedStudentId, setSelectedStudentId] = useState<string | undefined>(undefined);
 
-  const activeStudent = students.find((s) => s.id === selectedStudentId) || parentStudents[0] || students[0];
-  const assignedBus = buses.find((b) => b.id === activeStudent?.busId) || buses[0];
+  // BUG FIX: activeStudent used to fall through to `students[0]` — the
+  // first student IN THE ENTIRE SYSTEM, regardless of owner — whenever
+  // selectedStudentId didn't match one of the parent's own children (e.g.
+  // its initial value, or simply because the parent owns zero students).
+  // Live-reproduced: a newly self-registered parent (no children linked —
+  // there is no assignment mechanism, this is the normal state per Phase
+  // 7K's ownership model) was shown a completely unrelated family's child
+  // — name, school, absence status, pickup address, and the driver's phone
+  // number — as if it were their own. The lookup is now constrained to
+  // parentStudents at the point of use, not just at initialization, so a
+  // stray/unset selectedStudentId can never resolve to someone else's
+  // child. `students.length === 0` (initial mock state, before the first
+  // real sync) is the one legitimate case where nothing is owned yet
+  // because nothing has loaded yet — that keeps the existing loading
+  // message below, not this fix's new "no children" message.
+  const activeStudent =
+    students.length === 0 ? students[0] : parentStudents.find((s) => s.id === selectedStudentId) || parentStudents[0];
+  const assignedBus = buses.find((b) => b.id === activeStudent?.busId);
 
   const [absenceReason, setAbsenceReason] = useState('');
   const [showAbsenceModal, setShowAbsenceModal] = useState(false);
@@ -136,6 +150,17 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({
       });
     }
   }, [assignedBus?.nextStopEtaMins, activeStudent?.id, leadTimeMinutes, isAutoNotifyEnabled]);
+
+  if (students.length > 0 && parentStudents.length === 0) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center space-y-2">
+        <p className="text-slate-700 font-bold">لا يوجد أبناء مرتبطون بحسابك حالياً</p>
+        <p className="text-slate-500 text-sm font-medium">
+          يقوم فريق المدرسة بربط الطالب بحساب ولي الأمر الصحيح. الرجاء التواصل مع إدارة المدرسة لإتمام هذا الربط.
+        </p>
+      </div>
+    );
+  }
 
   if (!activeStudent || !assignedBus) {
     return (

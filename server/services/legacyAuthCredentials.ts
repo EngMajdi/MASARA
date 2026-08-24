@@ -34,3 +34,18 @@ export function verifyPassword(password: string, storedHash: string): boolean {
   if (candidate.length !== expected.length) return false;
   return timingSafeEqual(candidate, expected);
 }
+
+// Phase 8B — the temporary credential issued to a newly provisioned
+// employee (or on a credential reset), returned once in the API response
+// and never persisted in plaintext (only its hash, via hashPassword above,
+// exactly like a real self-chosen password). 9 random bytes / 12
+// base64url characters ~= 72 bits of entropy — the same
+// randomBytes(...).toString(...) convention already used for session
+// tokens (legacySessionService.ts), device secrets (deviceCredentials.ts),
+// and verification codes (ContactVerificationService.ts), sized to be
+// short enough for an admin to read aloud/type on a keyboard rather than
+// a 48-character hex string. Always satisfies the existing length-only
+// password policy (MIN_PASSWORD_LENGTH=8) with room to spare.
+export function generateTemporaryPassword(): string {
+  return randomBytes(9).toString('base64url');
+}

@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Student, Bus, Route, School } from '../types';
 import { SwipeableCard } from './SwipeableCard';
+import { AuthUser } from './AuthModal';
+import { legacyAuthHeaders } from '../services/legacyAuthHeaders';
 import {
   X,
   Plus,
@@ -22,6 +24,15 @@ import {
   ArrowRightLeft
 } from 'lucide-react';
 
+/** Phase 8B — matches server.ts's toEmployeeView shape exactly (never includes passwordHash). Shared by GET /api/admin/employees and GET /api/admin/parents. */
+interface EmployeeSummary {
+  id: string;
+  name: string;
+  email: string;
+  role: 'driver' | 'school' | 'admin' | 'parent';
+  status: 'active' | 'disabled';
+}
+
 interface DataManagementModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -29,6 +40,7 @@ interface DataManagementModalProps {
   buses: Bus[];
   students: Student[];
   routes: Route[];
+  currentUser: AuthUser | null;
   onAddStudent: (newStudent: Omit<Student, 'id'>) => void;
   onDeleteStudent: (id: string) => void;
   onAddBus: (newBus: Omit<Bus, 'id' | 'driverId'>) => void;
@@ -44,6 +56,7 @@ export const DataManagementModal: React.FC<DataManagementModalProps> = ({
   buses,
   students,
   routes,
+  currentUser,
   onAddStudent,
   onDeleteStudent,
   onAddBus,
@@ -53,6 +66,66 @@ export const DataManagementModal: React.FC<DataManagementModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'students' | 'buses' | 'routes'>('students');
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Phase 8B — for the driver/parent ownership-assignment dropdowns below.
+  // Fetched once per modal open. Two separate reads because parents are
+  // deliberately NOT part of GET /api/admin/employees (self-service
+  // accounts, never admin-provisioned) — see that route's own comment.
+  const [employees, setEmployees] = useState<EmployeeSummary[]>([]);
+  const [parentAccounts, setParentAccounts] = useState<EmployeeSummary[]>([]);
+  const [assignMsg, setAssignMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen || !currentUser?.sessionToken) return;
+    const headers = legacyAuthHeaders(currentUser.sessionToken);
+    fetch('/api/admin/employees', { headers })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success) setEmployees(data.employees);
+      })
+      .catch(() => {});
+    fetch('/api/admin/parents', { headers })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success) setParentAccounts(data.parents);
+      })
+      .catch(() => {});
+  }, [isOpen, currentUser?.sessionToken]);
+
+  const activeDrivers = employees.filter((e) => e.role === 'driver' && e.status === 'active');
+  const activeParents = parentAccounts.filter((e) => e.status === 'active');
+
+  const handleAssignDriver = async (busId: string, driverId: string | null) => {
+    try {
+      const res = await fetch(`/api/buses/${busId}/assign-driver`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...legacyAuthHeaders(currentUser?.sessionToken) },
+        body: JSON.stringify({ driverId })
+      });
+      const data = await res.json();
+      setAssignMsg(data.success ? 'تم تحديث إسناد السائق بنجاح' : data.error || 'تعذّر تحديث الإسناد');
+    } catch {
+      setAssignMsg('حدث خطأ في الاتصال بالخادم');
+    } finally {
+      setTimeout(() => setAssignMsg(null), 3000);
+    }
+  };
+
+  const handleAssignParent = async (studentId: string, parentId: string | null) => {
+    try {
+      const res = await fetch(`/api/students/${studentId}/assign-parent`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...legacyAuthHeaders(currentUser?.sessionToken) },
+        body: JSON.stringify({ parentId })
+      });
+      const data = await res.json();
+      setAssignMsg(data.success ? 'تم تحديث إسناد ولي الأمر بنجاح' : data.error || 'تعذّر تحديث الإسناد');
+    } catch {
+      setAssignMsg('حدث خطأ في الاتصال بالخادم');
+    } finally {
+      setTimeout(() => setAssignMsg(null), 3000);
+    }
+  };
 
   // Student Form State
   const [studentName, setStudentName] = useState('');
@@ -229,6 +302,14 @@ export const DataManagementModal: React.FC<DataManagementModalProps> = ({
           <div className="bg-emerald-600 text-white px-4 py-2.5 text-xs font-bold flex items-center gap-2 animate-fade-in shrink-0 border-b border-emerald-700">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{successToast}</span>
+          </div>
+        )}
+
+        {/* Phase 8B — ownership assignment result toast */}
+        {assignMsg && (
+          <div className="bg-blue-600 text-white px-4 py-2.5 text-xs font-bold flex items-center gap-2 animate-fade-in shrink-0 border-b border-blue-700">
+            <UserPlus className="w-4 h-4 shrink-0" />
+            <span>{assignMsg}</span>
           </div>
         )}
 
@@ -449,23 +530,42 @@ export const DataManagementModal: React.FC<DataManagementModalProps> = ({
                         rightActionColor="blue"
                         rightActionIcon={<Phone className="w-4 h-4 text-white" />}
                       >
-                        <div className="bg-slate-50 hover:bg-slate-100/80 border border-slate-200 p-3 rounded-xl flex items-center justify-between text-xs transition-colors shadow-2xs">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <img src={std.avatar} alt={std.name} className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0" />
-                            <div className="min-w-0">
-                              <div className="font-bold text-slate-900 truncate">{std.name}</div>
-                              <div className="text-[10px] text-slate-500 truncate mt-0.5">
-                                {std.grade} • {std.schoolName} • حافلة: <span className="font-bold text-slate-700">{std.busNumber}</span> • مقعد: {std.seatNumber}
+                        <div className="bg-slate-50 hover:bg-slate-100/80 border border-slate-200 p-3 rounded-xl text-xs transition-colors shadow-2xs space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <img src={std.avatar} alt={std.name} className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0" />
+                              <div className="min-w-0">
+                                <div className="font-bold text-slate-900 truncate">{std.name}</div>
+                                <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                                  {std.grade} • {std.schoolName} • حافلة: <span className="font-bold text-slate-700">{std.busNumber}</span> • مقعد: {std.seatNumber}
+                                </div>
                               </div>
                             </div>
+                            <button
+                              onClick={() => onDeleteStudent(std.id)}
+                              className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors shrink-0 mr-2"
+                              title="حذف الطالب"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
-                          <button
-                            onClick={() => onDeleteStudent(std.id)}
-                            className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors shrink-0 mr-2"
-                            title="حذف الطالب"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {/* Phase 8B — real ownership assignment (legacy_students.parentId), replacing the free-text parentName-only model. */}
+                          <div className="flex items-center gap-2 border-t border-slate-200/80 pt-2">
+                            <UserPlus className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                            <label className="text-[10px] text-slate-500 font-bold shrink-0">ولي الأمر المرتبط بالحساب:</label>
+                            <select
+                              value={(std.parentId as string | null) || ''}
+                              onChange={(e) => handleAssignParent(std.id, e.target.value || null)}
+                              className="flex-1 bg-white border border-slate-200 rounded-lg px-2 py-1 text-[10.5px] text-slate-800 focus:outline-none focus:border-blue-600"
+                            >
+                              <option value="">— غير مُسند —</option>
+                              {activeParents.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name} ({p.email})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                         </div>
                       </SwipeableCard>
                     ))
@@ -588,23 +688,42 @@ export const DataManagementModal: React.FC<DataManagementModalProps> = ({
                         rightActionColor="emerald"
                         rightActionIcon={<Phone className="w-4 h-4 text-white" />}
                       >
-                        <div className="bg-slate-50 hover:bg-slate-100/80 border border-slate-200 p-3 rounded-xl flex items-center justify-between text-xs transition-colors shadow-2xs">
-                          <div>
-                            <div className="font-bold text-slate-900 flex items-center gap-2">
-                              <span>{b.busNumber}</span>
-                              <span className="text-[10px] text-slate-500 bg-slate-200/70 px-1.5 py-0.2 rounded font-sans">{b.plateNumber}</span>
+                        <div className="bg-slate-50 hover:bg-slate-100/80 border border-slate-200 p-3 rounded-xl text-xs transition-colors shadow-2xs space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="font-bold text-slate-900 flex items-center gap-2">
+                                <span>{b.busNumber}</span>
+                                <span className="text-[10px] text-slate-500 bg-slate-200/70 px-1.5 py-0.2 rounded font-sans">{b.plateNumber}</span>
+                              </div>
+                              <div className="text-[10px] text-slate-500 mt-0.5">
+                                السائق: <span className="font-bold text-slate-700">{b.driverName}</span> • الهاتف: {b.driverPhone} • السعة: {b.capacity} طالب
+                              </div>
                             </div>
-                            <div className="text-[10px] text-slate-500 mt-0.5">
-                              السائق: <span className="font-bold text-slate-700">{b.driverName}</span> • الهاتف: {b.driverPhone} • السعة: {b.capacity} طالب
-                            </div>
+                            <button
+                              onClick={() => onDeleteBus(b.id)}
+                              className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors shrink-0 mr-2"
+                              title="حذف الحافلة"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
-                          <button
-                            onClick={() => onDeleteBus(b.id)}
-                            className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors shrink-0 mr-2"
-                            title="حذف الحافلة"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {/* Phase 8B — real ownership assignment (legacy_buses.driverId), replacing the free-text driverName-only model. */}
+                          <div className="flex items-center gap-2 border-t border-slate-200/80 pt-2">
+                            <UserPlus className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            <label className="text-[10px] text-slate-500 font-bold shrink-0">حساب السائق المرتبط:</label>
+                            <select
+                              value={(b.driverId as string | null) || ''}
+                              onChange={(e) => handleAssignDriver(b.id, e.target.value || null)}
+                              className="flex-1 bg-white border border-slate-200 rounded-lg px-2 py-1 text-[10.5px] text-slate-800 focus:outline-none focus:border-blue-600"
+                            >
+                              <option value="">— غير مُسند —</option>
+                              {activeDrivers.map((d) => (
+                                <option key={d.id} value={d.id}>
+                                  {d.name} ({d.email})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                         </div>
                       </SwipeableCard>
                     ))

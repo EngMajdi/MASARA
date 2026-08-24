@@ -88,6 +88,12 @@ export const legacyBusRepository = {
     return legacyBusRepository.findById(id);
   },
 
+  /** Phase 8B — the ownership assignment Phase 7K deliberately left unbuilt ("no assignment mechanism exists"). Caller (server.ts route) is responsible for validating driverId resolves to an active legacy_users row with role='driver' before calling this — this method performs the write only. */
+  updateDriverId: (id: string, driverId: string | null): LegacyBusView | undefined => {
+    db.update(legacyBuses).set({ driverId, updatedAt: new Date() }).where(eq(legacyBuses.id, id)).run();
+    return legacyBusRepository.findById(id);
+  },
+
   /** Test-only — full reset between test files. */
   clear: () => db.delete(legacyBuses).run(),
 };

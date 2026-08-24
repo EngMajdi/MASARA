@@ -68,6 +68,14 @@ export const LEGACY_DATA_MANAGEMENT_ROLES = ['admin', 'school'] as const;
 export const LEGACY_OPERATIONAL_ROLES = ['admin', 'school', 'driver'] as const;
 export const LEGACY_ANY_ROLE = ['admin', 'school', 'driver', 'parent'] as const;
 
+// Phase 8B — employee lifecycle (create/activate/deactivate/reset-credential/
+// revoke-sessions) is deliberately admin-only, not admin/school like
+// LEGACY_DATA_MANAGEMENT_ROLES: issuing a login credential is a materially
+// more sensitive action than creating a bus/student/route record, and the
+// two are kept as separate constants specifically so this narrower scope
+// can't silently widen if LEGACY_DATA_MANAGEMENT_ROLES ever changes.
+export const LEGACY_EMPLOYEE_MANAGEMENT_ROLES = ['admin'] as const;
+
 // Phase 7K — the data-model limitation the comment above described (no
 // driver->bus or parent->student FK) has now been closed for buses and
 // students specifically (legacy_buses.driverId / legacy_students.parentId,

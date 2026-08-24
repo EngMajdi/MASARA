@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { UserRole, Student, Bus, School, Route, SystemNotification, AIAgentWorkflowStep } from './types';
 import {
   INITIAL_SCHOOLS,
@@ -21,11 +21,30 @@ import { ApprovalCenter } from './components/ApprovalCenter';
 import { SimulationCenter } from './components/SimulationCenter';
 import { AIOperationsFeed } from './components/AIOperationsFeed';
 import { AuthModal, AuthUser } from './components/AuthModal';
+import { ForcedPasswordChangeGate } from './components/ForcedPasswordChangeGate';
+import { EmployeeManagementModal } from './components/EmployeeManagementModal';
 import { legacyAuthHeaders } from './services/legacyAuthHeaders';
 import { Map, ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function App() {
-  const [activeRole, setActiveRole] = useState<UserRole>('parent');
+  // BUG FIX: activeRole used to hardcode 'parent' as its initial value and
+  // was only ever updated via setActiveRole inside handleLoginSuccess below
+  // — meaning it was never restored from the saved session the way
+  // currentUser is. A driver/school/admin whose session survived a page
+  // reload (currentUser correctly restored, name shown in the header,
+  // "تسجيل الخروج" present) would still see the PARENT portal rendered
+  // underneath, since {activeRole === 'parent' && <ParentPortal/>} etc. is
+  // what actually decides which portal renders (live-verified: driver1's
+  // session after a reload rendered ParentPortal, not DriverPortal). Now
+  // initialized from the same saved session, exactly like currentUser.
+  const [activeRole, setActiveRole] = useState<UserRole>(() => {
+    try {
+      const saved = localStorage.getItem('masara_auth_user');
+      return saved ? (JSON.parse(saved).role as UserRole) : 'parent';
+    } catch {
+      return 'parent';
+    }
+  });
 
   // Authentication State
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
@@ -53,6 +72,7 @@ export default function App() {
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [showAdvisorModal, setShowAdvisorModal] = useState(false);
   const [showDataManagementModal, setShowDataManagementModal] = useState(false);
+  const [showEmployeeManagement, setShowEmployeeManagement] = useState(false);
   const [showApprovalCenter, setShowApprovalCenter] = useState(false);
   const [showSimulationCenter, setShowSimulationCenter] = useState(false);
   const [showOperationsFeed, setShowOperationsFeed] = useState(false);
@@ -197,12 +217,16 @@ export default function App() {
     }
   };
 
-  // Handler: Gemini AI Route Optimization
+  // Handler: Gemini AI Route Optimization. No per-school ownership exists yet
+  // for the 'school'/'admin' roles (unlike driver->bus/parent->student since
+  // Phase 7K) — schoolId is derived from the live synced schools list rather
+  // than a hardcoded 'sch-1' literal, so this stays correct if a second real
+  // school is ever seeded instead of silently pointing at a stale id.
   const handleOptimizeRoutes = async (trafficCondition: string) => {
     const res = await fetch('/api/ai/optimize-routes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...legacyAuthHeaders(currentUser?.sessionToken) },
-      body: JSON.stringify({ schoolId: 'sch-1', trafficCondition })
+      body: JSON.stringify({ schoolId: schools[0]?.id, trafficCondition })
     });
     const data = await res.json();
     syncAllData();
@@ -254,6 +278,53 @@ export default function App() {
     return data.answer;
   };
 
+  // Live map scoping by role: admin/school keep full fleet visibility
+  // (matches their existing unrestricted access everywhere else in the
+  // app); driver sees only their own bus (legacy_buses.driverId, enforced
+  // server-side since Phase 7K); parent sees only their own children's
+  // bus(es). Schools stay unfiltered — a small, fixed set of institution
+  // locations, not personal data. Without this, the shared map showed
+  // every bus and every child's pickup point to every logged-in role
+  // regardless of ownership.
+  const mapBuses = useMemo(() => {
+    if (!currentUser) return buses;
+    if (currentUser.role === 'driver') {
+      return buses.filter((b) => b.driverId === currentUser.id);
+    }
+    if (currentUser.role === 'parent') {
+      const myBusIds = new Set(students.filter((s) => s.parentId === currentUser.id).map((s) => s.busId));
+      return buses.filter((b) => myBusIds.has(b.id));
+    }
+    return buses;
+  }, [buses, students, currentUser]);
+
+  const mapStudents = useMemo(() => {
+    if (!currentUser) return students;
+    if (currentUser.role === 'driver') {
+      const myBusIds = new Set(mapBuses.map((b) => b.id));
+      return students.filter((s) => myBusIds.has(s.busId));
+    }
+    if (currentUser.role === 'parent') {
+      return students.filter((s) => s.parentId === currentUser.id);
+    }
+    return students;
+  }, [students, currentUser, mapBuses]);
+
+  // Phase 8B — a forced first-login password change blocks the ENTIRE app,
+  // not just a dismissible overlay on top of it: no header, no map, no
+  // portal renders underneath. The backend already revokes every session
+  // on a successful change (Phase 7H's session-invalidation decision), so
+  // the only correct next step is a full logout back to a fresh login —
+  // never a silent continuation with the same (now-invalid) token.
+  if (currentUser?.mustChangePassword) {
+    return (
+      <ForcedPasswordChangeGate
+        currentUser={currentUser}
+        onPasswordChangedRequireRelogin={handleLogout}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-['Tajawal',sans-serif]">
       {/* App Main Header */}
@@ -264,6 +335,7 @@ export default function App() {
         onOpenNotifications={() => setShowNotificationsModal(true)}
         onOpenAdvisor={() => setShowAdvisorModal(true)}
         onOpenDataManagement={() => setShowDataManagementModal(true)}
+        onOpenEmployeeManagement={() => setShowEmployeeManagement(true)}
         onOpenApprovalCenter={() => setShowApprovalCenter(true)}
         onOpenSimulationCenter={() => setShowSimulationCenter(true)}
         onOpenOperationsFeed={() => setShowOperationsFeed(true)}
@@ -278,9 +350,9 @@ export default function App() {
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6">
         {/* Integrated Interactive Map Component */}
         <MapView
-          buses={buses}
+          buses={mapBuses}
           schools={schools}
-          students={students}
+          students={mapStudents}
           routes={routes}
           selectedBusId={selectedBusId}
           onSelectBus={(busId) => setSelectedBusId(busId)}
@@ -386,12 +458,19 @@ export default function App() {
         buses={buses}
         students={students}
         routes={routes}
+        currentUser={currentUser}
         onAddStudent={handleAddStudent}
         onDeleteStudent={handleDeleteStudent}
         onAddBus={handleAddBus}
         onDeleteBus={handleDeleteBus}
         onAddRoute={handleAddRoute}
         onDeleteRoute={handleDeleteRoute}
+      />
+
+      <EmployeeManagementModal
+        isOpen={showEmployeeManagement}
+        onClose={() => setShowEmployeeManagement(false)}
+        currentUser={currentUser}
       />
 
       <ApprovalCenter

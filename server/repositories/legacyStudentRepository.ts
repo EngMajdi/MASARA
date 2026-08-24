@@ -90,6 +90,12 @@ export const legacyStudentRepository = {
     return legacyStudentRepository.findById(id);
   },
 
+  /** Phase 8B — the ownership assignment Phase 7K deliberately left unbuilt. Caller (server.ts route) is responsible for validating parentId resolves to an active legacy_users row with role='parent' before calling this — this method performs the write only. */
+  updateParentId: (id: string, parentId: string | null): LegacyStudentView | undefined => {
+    db.update(legacyStudents).set({ parentId, updatedAt: new Date() }).where(eq(legacyStudents.id, id)).run();
+    return legacyStudentRepository.findById(id);
+  },
+
   /** Test-only — full reset between test files. */
   clear: () => db.delete(legacyStudents).run(),
 };

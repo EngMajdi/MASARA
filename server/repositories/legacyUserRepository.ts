@@ -33,6 +33,14 @@ export const legacyUserRepository = {
   updatePasswordHash: (id: string, passwordHash: string) =>
     db.update(legacyUsers).set({ passwordHash, updatedAt: new Date() }).where(eq(legacyUsers.id, id)).run(),
 
+  // Phase 8B — employee provisioning primitives.
+
+  updateStatus: (id: string, status: 'active' | 'disabled') =>
+    db.update(legacyUsers).set({ status, updatedAt: new Date() }).where(eq(legacyUsers.id, id)).run(),
+
+  setMustChangePassword: (id: string, mustChangePassword: boolean) =>
+    db.update(legacyUsers).set({ mustChangePassword, updatedAt: new Date() }).where(eq(legacyUsers.id, id)).run(),
+
   /** Test-only — full reset between test files. */
   clear: () => db.delete(legacyUsers).run(),
 };
