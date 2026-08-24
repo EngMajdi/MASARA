@@ -938,7 +938,13 @@ ${schoolStudents
       title: 'تحليل ذكي جديد لتحسين المسارات (MASARA AI)',
       message: `${resultJson.summaryAr} — هذا تحليل استرشادي، ولم يُطبَّق تلقائياً على المسارات.`,
       type: 'info' as const,
-      targetRole: 'all' as const,
+      // UX audit P1-3: this is an operational/admin-facing analytics notice
+      // ("route optimization saved X% fuel"), not something a parent can
+      // act on. It was previously 'all', which — now that the frontend
+      // actually filters by targetRole (see App.tsx's visibleNotifications)
+      // — would otherwise have vanished from the admin who triggered it too.
+      // Scoped to the roles that can act on route optimization.
+      targetRole: 'admin' as const,
       read: false
     };
     notifications.unshift(newNotif);

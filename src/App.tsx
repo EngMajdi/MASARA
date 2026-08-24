@@ -23,6 +23,7 @@ import { AIOperationsFeed } from './components/AIOperationsFeed';
 import { AuthModal, AuthUser } from './components/AuthModal';
 import { ForcedPasswordChangeGate } from './components/ForcedPasswordChangeGate';
 import { EmployeeManagementModal } from './components/EmployeeManagementModal';
+import { ParentStatusSummary } from './components/ParentStatusSummary';
 import { legacyAuthHeaders } from './services/legacyAuthHeaders';
 import { Map, ChevronDown, ChevronUp } from 'lucide-react';
 
@@ -310,6 +311,17 @@ export default function App() {
     return students;
   }, [students, currentUser, mapBuses]);
 
+  // UX audit P1-3: notifications carry a targetRole field (per-role, plus
+  // 'all' for genuinely cross-role notices), but nothing ever filtered on
+  // it — every notification, including admin-only AI-analysis notices,
+  // rendered in every role's bell/panel. 'all' still means "every role
+  // should see this" (e.g. a real safety alert); it does not mean
+  // "unfiltered by default."
+  const visibleNotifications = useMemo(() => {
+    if (!currentUser) return notifications;
+    return notifications.filter((n) => n.targetRole === 'all' || n.targetRole === currentUser.role);
+  }, [notifications, currentUser]);
+
   // Phase 8B — a forced first-login password change blocks the ENTIRE app,
   // not just a dismissible overlay on top of it: no header, no map, no
   // portal renders underneath. The backend already revokes every session
@@ -331,7 +343,7 @@ export default function App() {
       <Header
         activeRole={activeRole}
         setActiveRole={setActiveRole}
-        notifications={notifications}
+        notifications={visibleNotifications}
         onOpenNotifications={() => setShowNotificationsModal(true)}
         onOpenAdvisor={() => setShowAdvisorModal(true)}
         onOpenDataManagement={() => setShowDataManagementModal(true)}
@@ -348,6 +360,13 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6">
+        {/* UX audit P1-1: a parent's first glance must answer "is my child
+            safe" before anything else — rendered above the map deliberately,
+            not buried inside ParentPortal below it. */}
+        {activeRole === 'parent' && (
+          <ParentStatusSummary students={students} buses={buses} currentUser={currentUser} />
+        )}
+
         {/* Integrated Interactive Map Component */}
         <MapView
           buses={mapBuses}
@@ -367,7 +386,7 @@ export default function App() {
             <ParentPortal
               students={students}
               buses={buses}
-              notifications={notifications}
+              notifications={visibleNotifications}
               onUpdateStatus={handleUpdateStudentStatus}
               currentUser={currentUser}
             />
@@ -398,6 +417,8 @@ export default function App() {
             <AdminAIAgentPortal
               workflowSteps={workflowSteps}
               routes={routes}
+              buses={buses}
+              students={students}
               onOptimizeRoutes={handleOptimizeRoutes}
               onTriggerReroute={handleTriggerReroute}
               onAskAdvisor={handleAskAdvisor}
@@ -438,7 +459,7 @@ export default function App() {
 
       {showNotificationsModal && (
         <NotificationsModal
-          notifications={notifications}
+          notifications={visibleNotifications}
           onClose={() => setShowNotificationsModal(false)}
           onClear={() => setNotifications([])}
         />

@@ -365,7 +365,7 @@ export const MapView: React.FC<MapViewProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm sm:text-base font-bold text-slate-900">
-                الخريطة المباشرة وتتبع الحافلات والطلاب (GPS Live Radar)
+                الخريطة المباشرة — مواقع الحافلات والطلاب الآن
               </h2>
               <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-200/80 shrink-0 flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>

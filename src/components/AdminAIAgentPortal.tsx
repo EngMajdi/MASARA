@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Route, AIAgentWorkflowStep } from '../types';
+import React, { useState, useMemo } from 'react';
+import { Route, AIAgentWorkflowStep, Bus as BusType, Student } from '../types';
 import { AuthUser } from './AuthModal';
 import { legacyAuthHeaders } from '../services/legacyAuthHeaders';
 import {
@@ -56,6 +56,8 @@ import {
 interface AdminAIAgentPortalProps {
   workflowSteps: AIAgentWorkflowStep[];
   routes: Route[];
+  buses: BusType[];
+  students: Student[];
   onOptimizeRoutes: (trafficCondition: string) => Promise<any>;
   onTriggerReroute: (busId: string, incident: string) => Promise<any>;
   onAskAdvisor: (query: string) => Promise<string>;
@@ -65,6 +67,8 @@ interface AdminAIAgentPortalProps {
 export const AdminAIAgentPortal: React.FC<AdminAIAgentPortalProps> = ({
   workflowSteps,
   routes,
+  buses,
+  students,
   onOptimizeRoutes,
   onTriggerReroute,
   onAskAdvisor,
@@ -248,6 +252,18 @@ export const AdminAIAgentPortal: React.FC<AdminAIAgentPortalProps> = ({
     { bus: 'حافلة 105', fuelLevel: 78, fuelConsumed: 13.5, carbonSavedKg: 4.5 },
   ];
 
+  // UX audit P1-4: the previous default admin view was a decorative,
+  // permanently-"active" architecture diagram with zero operational
+  // content — a first-time admin learned nothing about the actual fleet.
+  // This strip is derived entirely from the real buses/students already
+  // held in App.tsx state (same source as the map/portals), never fabricated.
+  const fleetSummary = useMemo(() => {
+    const activeBuses = buses.filter((b) => b.status === 'en_route_pickup' || b.status === 'en_route_school').length;
+    const notYetBoarded = students.filter((s) => s.status === 'at_home' || s.status === 'waiting').length;
+    const needsAttention = buses.filter((b) => b.fuelLevel < 20 || b.safetyScore < 70).length;
+    return { activeBuses, totalBuses: buses.length, notYetBoarded, totalStudents: students.length, needsAttention };
+  }, [buses, students]);
+
   return (
     <div className="space-y-8">
       {/* Top Banner - Architectural Blueprint */}
@@ -288,6 +304,48 @@ export const AdminAIAgentPortal: React.FC<AdminAIAgentPortalProps> = ({
         </div>
       </div>
 
+      {/* Operational summary strip (UX audit P1-4) — real status, above the
+          decorative architecture diagram, so the first thing an admin sees
+          is "what needs my attention" not "how the AI is architected." */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-3 shadow-sm">
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0">
+            <Bus className="w-5 h-5 text-emerald-600" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-lg font-black text-slate-900">{fleetSummary.activeBuses} <span className="text-xs font-bold text-slate-400">/ {fleetSummary.totalBuses}</span></div>
+            <div className="text-[11px] text-slate-500 font-bold">حافلات في مسار نشط الآن</div>
+          </div>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-3 shadow-sm">
+          <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0">
+            <Clock className="w-5 h-5 text-amber-600" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-lg font-black text-slate-900">{fleetSummary.notYetBoarded} <span className="text-xs font-bold text-slate-400">/ {fleetSummary.totalStudents}</span></div>
+            <div className="text-[11px] text-slate-500 font-bold">طلاب لم يصعدوا الحافلة بعد</div>
+          </div>
+        </div>
+        <div className={`bg-white border rounded-2xl p-4 flex items-center gap-3 shadow-sm ${fleetSummary.needsAttention > 0 ? 'border-rose-200' : 'border-slate-200'}`}>
+          <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${fleetSummary.needsAttention > 0 ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-200'}`}>
+            <AlertTriangle className={`w-5 h-5 ${fleetSummary.needsAttention > 0 ? 'text-rose-600' : 'text-slate-400'}`} />
+          </div>
+          <div className="min-w-0">
+            <div className="text-lg font-black text-slate-900">{fleetSummary.needsAttention}</div>
+            <div className="text-[11px] text-slate-500 font-bold">حافلات تحتاج انتباه (وقود/سلامة)</div>
+          </div>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-3 shadow-sm">
+          <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0">
+            <Users className="w-5 h-5 text-blue-600" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-lg font-black text-slate-900">{fleetSummary.totalStudents}</div>
+            <div className="text-[11px] text-slate-500 font-bold">إجمالي الطلاب المسجلين</div>
+          </div>
+        </div>
+      </div>
+
       {/* Architectural Diagram Visualizer matching the uploaded Image */}
       <div className="bg-white border border-slate-200 rounded-3xl p-6 md:p-8 space-y-6 shadow-sm text-slate-900">
         <div className="text-center space-y-1">
@@ -302,7 +360,7 @@ export const AdminAIAgentPortal: React.FC<AdminAIAgentPortalProps> = ({
         <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
           <div className="text-xs font-bold text-amber-800 mb-3 flex items-center gap-1.5">
             <Radio className="w-3.5 h-3.5 text-amber-600" />
-            <span>المدخلات (Multi-Source Data Inputs)</span>
+            <span>مصادر البيانات المستخدمة في التحليل</span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2 text-[11px] text-slate-800">
             <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-center font-bold shadow-2xs">

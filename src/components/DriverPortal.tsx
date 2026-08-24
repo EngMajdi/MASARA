@@ -192,7 +192,7 @@ export const DriverPortal: React.FC<DriverPortalProps> = ({
       <div>
         <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2 mb-3">
           <Navigation className="w-4 h-4 text-blue-600" />
-          <span>وحدة تحكم رحلات الطلاب (Journey Console)</span>
+          <span>متابعة صعود ونزول الطلاب</span>
         </h3>
         {currentUser?.email ? (
           <DriverJourneyConsole userEmail={currentUser.email} />

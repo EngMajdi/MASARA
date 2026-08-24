@@ -270,7 +270,7 @@ export const DriverJourneyConsole: React.FC<DriverJourneyConsoleProps> = ({ user
                 <Bus className="w-5 h-5" />
               </div>
               <div>
-                <div className="text-xs font-bold text-blue-600">وحدة تحكم رحلات الطلاب — Journey Console</div>
+                <div className="text-xs font-bold text-blue-600">متابعة صعود ونزول الطلاب</div>
                 <h2 className="text-lg font-bold text-slate-900">{selectedTrip.busNumber ?? 'حافلة'}</h2>
                 <p className="text-xs text-slate-500">{selectedTrip.routeName ?? 'مسار غير محدد'}</p>
               </div>
@@ -326,7 +326,17 @@ export const DriverJourneyConsole: React.FC<DriverJourneyConsoleProps> = ({ user
                 <div key={journey.id} className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3 shadow-sm">
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <h4 className="font-bold text-sm text-slate-900 truncate">{journey.studentName ?? 'طالب غير معروف'}</h4>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <h4 className="font-bold text-sm text-slate-900 truncate">{journey.studentName ?? 'طالب غير معروف'}</h4>
+                        {/* UX audit P0-1: demo/real name generators can collide (two
+                            different students, identical displayed name) — this short
+                            server-derived studentId suffix is always unique per student,
+                            so a driver can never confirm boarding for the wrong child
+                            just because two names look the same. */}
+                        <span className="shrink-0 text-[9px] font-mono font-bold text-slate-400 bg-slate-100 border border-slate-200 rounded px-1 py-0.5" title={`معرّف الطالب: ${journey.studentId}`}>
+                          #{journey.studentId.slice(-4).toUpperCase()}
+                        </span>
+                      </div>
                       {journey.studentGrade && <p className="text-[10px] text-slate-500">{journey.studentGrade}</p>}
                     </div>
                     <JourneyStatusBadge state={journey.state} />

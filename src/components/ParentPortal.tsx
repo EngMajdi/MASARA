@@ -98,7 +98,22 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({
   const [isAutoNotifyEnabled, setIsAutoNotifyEnabled] = useState(true);
   const [leadTimeMinutes, setLeadTimeMinutes] = useState<number>(5);
   const [notificationChannel, setNotificationChannel] = useState<'in_app' | 'sms' | 'audio'>('in_app');
-  const [firedStudentAlerts, setFiredStudentAlerts] = useState<Record<string, boolean>>({});
+  // UX audit finding P1-2: this used to be plain component state, reset on
+  // every page reload — a parent who checked the app a few times before
+  // pickup would see the exact same "bus is 5 minutes away" alert refire
+  // each time, since the dedup key has no per-day scope. Persisted to
+  // localStorage under a key scoped to today's date, so a real alert
+  // fires at most once per student per day regardless of how many times
+  // the page reloads, while still firing again tomorrow.
+  const todayKey = `masara_fired_alerts_${new Date().toISOString().slice(0, 10)}`;
+  const [firedStudentAlerts, setFiredStudentAlerts] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem(todayKey);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
   const [isScheduling, setIsScheduling] = useState(false);
   const [scheduleSuccessMsg, setScheduleSuccessMsg] = useState<string | null>(null);
   const [isNotifyPanelOpen, setIsNotifyPanelOpen] = useState(false);
@@ -122,7 +137,15 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({
 
     // Trigger automatic alert when bus ETA drops to or below the scheduled lead time (e.g. 5 mins)
     if (currentEta <= leadTimeMinutes && !firedStudentAlerts[alertKey]) {
-      setFiredStudentAlerts((prev) => ({ ...prev, [alertKey]: true }));
+      setFiredStudentAlerts((prev) => {
+        const next = { ...prev, [alertKey]: true };
+        try {
+          localStorage.setItem(todayKey, JSON.stringify(next));
+        } catch {
+          // localStorage unavailable — the in-memory dedup for this session still works
+        }
+        return next;
+      });
 
       // Dispatch to server notification system
       fetch('/api/notifications/schedule-prearrival', {
