@@ -126,6 +126,22 @@ describe('Ownership assignment repository primitives — the gap Phase 7K delibe
     legacyStudentRepository.updateParentId('std-3', null);
     expect(legacyStudentRepository.findById('std-3')?.parentId).toBeNull();
   });
+
+  it('Phase 9C fix — assigning a parent keeps parentName in sync with the linked account, so the guardian shown never contradicts who actually has access', () => {
+    const before = legacyStudentRepository.findById('std-3');
+    expect(before?.parentName).not.toBe('أحمد بن سيف البوسعيدي');
+
+    legacyStudentRepository.updateParentId('std-3', 'u-1', 'أحمد بن سيف البوسعيدي');
+    const assigned = legacyStudentRepository.findById('std-3');
+    expect(assigned?.parentId).toBe('u-1');
+    expect(assigned?.parentName).toBe('أحمد بن سيف البوسعيدي');
+
+    // Unassigning leaves the last-known guardian name on file rather than blanking real contact info.
+    legacyStudentRepository.updateParentId('std-3', null);
+    const unassigned = legacyStudentRepository.findById('std-3');
+    expect(unassigned?.parentId).toBeNull();
+    expect(unassigned?.parentName).toBe('أحمد بن سيف البوسعيدي');
+  });
 });
 
 // ---------------------------------------------------------------------------

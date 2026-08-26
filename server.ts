@@ -595,6 +595,7 @@ app.patch('/api/students/:id/assign-parent', (req, res) => {
   const student = legacyStudentRepository.findById(id);
   if (!student) return res.status(404).json({ success: false, error: 'الطالب غير موجود.' });
 
+  let parentName: string | undefined;
   if (parentId !== null) {
     if (typeof parentId !== 'string' || !parentId) {
       return res.status(400).json({ success: false, error: 'معرّف ولي الأمر غير صالح.' });
@@ -603,9 +604,11 @@ app.patch('/api/students/:id/assign-parent', (req, res) => {
     if (!parent || parent.role !== 'parent' || parent.status !== 'active') {
       return res.status(400).json({ success: false, error: 'يجب أن يشير معرّف ولي الأمر إلى حساب ولي أمر نشط وحقيقي.' });
     }
+    // Phase 9C — keep the displayed guardian name in sync with the account this actually links to (see repository comment).
+    parentName = parent.name;
   }
 
-  const updated = legacyStudentRepository.updateParentId(id, parentId);
+  const updated = legacyStudentRepository.updateParentId(id, parentId, parentName);
   res.json({ success: true, student: updated });
 });
 
@@ -906,6 +909,12 @@ ${schoolStudents
         'إرسال إشعار استباقي لأولياء الأمور قبل الوصول بـ 5 دقائق لتجنب تأخر ركوب الطلبة.'
       ]
     };
+    // Phase 9C fix — a real "fake AI result" found live during the UX audit: whenever the Gemini
+    // call is unavailable or fails, this silently served the exact static block above — the same
+    // text and numbers every time, for any school/traffic input — with nothing in the response
+    // distinguishing it from a genuine fresh analysis. `usedFallback` lets the client disclose that
+    // honestly instead of presenting a canned template as if it were computed for this request.
+    let usedFallback = true;
 
     if (ai) {
       try {
@@ -919,6 +928,7 @@ ${schoolStudents
         if (response.text) {
           const parsed = JSON.parse(response.text);
           resultJson = { ...resultJson, ...parsed };
+          usedFallback = false;
         }
       } catch (geminiError) {
         console.warn('Gemini API call error (using fallback):', geminiError);
@@ -952,6 +962,7 @@ ${schoolStudents
     res.json({
       success: true,
       result: resultJson,
+      isFallback: usedFallback,
       routes,
       notifications
     });
@@ -986,12 +997,18 @@ app.post('/api/ai/detect-reroute', async (req, res) => {
 4. "parentAlertMessage": نص التنبيه الموجّه لأولياء الأمور لطمأنتهم وإفادتهم بالمسار البديل.
     `;
 
+    // Phase 9C fix — a real P0 found live during the UX audit: the static fallback below used to
+    // claim a specific, unearned ETA ("الوصول المتوقع خلال 6 دقائق") and was broadcast straight to
+    // parents (targetRole 'all') even though no real analysis ran. A parent could see a precise
+    // arrival claim and act on it (wait outside) based on nothing but a canned string. The fallback
+    // copy no longer states a specific time, and — see below — is never sent to parents at all.
     let rerouteData = {
       rerouteTitleAr: 'إعادة توجيه ديناميكية - مسار بديل عبر طريق مسقط السريع',
-      actionPlanAr: `كشف وكيل مسارَا إعاقة مرورية (${incident}). تم تحويل الحافلة فوراً إلى طريق مسقط السريع لتفادي التأخير لمدة 12 دقيقة.`,
-      newEtaMins: 6,
-      parentAlertMessage: `نحيطكم علماً بأن وكيل مسارَا قام بتعديل مسار حافلة ${targetBus.busNumber} تلقائياً لتفادي ازدحام مفاجئ. الوصول المتوقع خلال 6 دقائق.`
+      actionPlanAr: `كشف وكيل مسارَا إعاقة مرورية (${incident}). يُقترح تحويل الحافلة إلى طريق مسقط السريع لتفادي التأخير، بانتظار مراجعة المشرف.`,
+      newEtaMins: null as number | null,
+      parentAlertMessage: `نحيطكم علماً بأن هناك إعاقة مرورية مؤقتة على مسار حافلة ${targetBus.busNumber} ويجري تقييم مسار بديل.`
     };
+    let usedFallback = true;
 
     if (ai) {
       try {
@@ -1005,6 +1022,7 @@ app.post('/api/ai/detect-reroute', async (req, res) => {
         if (response.text) {
           const parsed = JSON.parse(response.text);
           rerouteData = { ...rerouteData, ...parsed };
+          usedFallback = false;
         }
       } catch (err) {
         console.warn('Gemini reroute error (fallback used):', err);
@@ -1024,7 +1042,10 @@ app.post('/api/ai/detect-reroute', async (req, res) => {
       title: `اقتراح إعادة توجيه: ${rerouteData.rerouteTitleAr}`,
       message: `${rerouteData.parentAlertMessage} — هذا اقتراح استرشادي بانتظار مراجعة المشرف، ولم يُطبَّق تلقائياً.`,
       type: 'alert' as const,
-      targetRole: 'all' as const,
+      // Phase 9C fix — a canned fallback assessment (no real AI analysis ran) is an internal
+      // contingency note for the people who can act on it, not a claim parents should see; only a
+      // genuine AI-generated reroute plan is broadcast to parents (targetRole 'all').
+      targetRole: (usedFallback ? 'admin' : 'all') as 'admin' | 'all',
       read: false
     };
     notifications.unshift(newNotif);
@@ -1032,6 +1053,7 @@ app.post('/api/ai/detect-reroute', async (req, res) => {
     res.json({
       success: true,
       rerouteData,
+      isFallback: usedFallback,
       bus: targetBus,
       notifications
     });

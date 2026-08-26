@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Student, Bus, SystemNotification } from '../types';
+import { Student, Bus, SystemNotification, ParentJourneyView } from '../types';
 import { AuthUser } from './AuthModal';
 import { legacyAuthHeaders } from '../services/legacyAuthHeaders';
+import { getParentJourneys } from '../services/parentApi';
 import { ChildDetailSheet } from './parent/ChildDetailSheet';
 import { NotificationsPanel } from './NotificationsPanel';
 import {
@@ -62,6 +63,38 @@ const greeting = () => {
 
 const firstName = (fullName: string) => fullName.split(' ')[0] ?? fullName;
 
+function minutesUntil(iso: string | null): number | null {
+  if (!iso) return null;
+  return Math.max(0, Math.round((new Date(iso).getTime() - Date.now()) / 60000));
+}
+
+/**
+ * Phase 9C fix — a real P0 found live during the UX audit: the home list and
+ * the pre-arrival alert both used to read `bus.nextStopEtaMins`, a static
+ * seeded number that never counts down (see
+ * docs/LIVE_TRACKING_ARCHITECTURE_AUDIT.md's Bus-record section). A parent
+ * was shown "arrives in 4 minutes — get ready" from that static field while
+ * the very same child's detail sheet — built on the real governed journey —
+ * honestly said no live trip was active. Both surfaces must agree, so both
+ * now read the same real governed source ChildDetailSheet already uses (see
+ * its own P0-2 name-matching note — same caveat applies here).
+ */
+function useGovernedJourneys(userEmail: string | undefined) {
+  const [views, setViews] = useState<ParentJourneyView[]>([]);
+  useEffect(() => {
+    if (!userEmail) return;
+    let cancelled = false;
+    const load = () => getParentJourneys(userEmail).then((v) => !cancelled && setViews(v)).catch(() => !cancelled && setViews([]));
+    load();
+    const interval = setInterval(load, 6000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [userEmail]);
+  return views;
+}
+
 const SECTIONS: TabItem[] = [
   { id: 'children', label: 'أبنائي', icon: <Users className="w-4 h-4" /> },
   { id: 'notifications', label: 'الإشعارات', icon: <Bell className="w-4 h-4" /> }
@@ -84,6 +117,12 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ students, buses, not
   const myChildren = students.filter((s) => s.parentId === currentUser?.id);
   const selectedChild = myChildren.find((c) => c.id === selectedChildId) ?? null;
   const selectedBus = selectedChild ? buses.find((b) => b.id === selectedChild.busId) : undefined;
+
+  // Real governed ETA/journey per child (matched by name — see the hook's own P0-2 note).
+  // Never `bus.nextStopEtaMins` here: that field is static seed data (see
+  // docs/LIVE_TRACKING_ARCHITECTURE_AUDIT.md) and must never be presented as a live countdown.
+  const governedViews = useGovernedJourneys(currentUser?.email);
+  const governedFor = (childName: string) => governedViews.find((v) => v.child.name === childName);
 
   // Pre-arrival alert engine — behavior preserved exactly from the prior
   // implementation (date-scoped localStorage dedup so a real event fires at
@@ -108,7 +147,10 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ students, buses, not
     for (const child of myChildren) {
       const bus = buses.find((b) => b.id === child.busId);
       if (!bus) continue;
-      const currentEta = bus.nextStopEtaMins;
+      // Only ever alert from a real, currently-active governed ETA — never the static seeded field.
+      const governed = governedFor(child.name);
+      const currentEta = governed?.journey && governed.eta ? minutesUntil(governed.eta.estimatedArrivalAt) : null;
+      if (currentEta === null) continue;
       const alertKey = `${child.id}-${bus.id}-${leadTimeMinutes}`;
       if (currentEta <= leadTimeMinutes && !firedStudentAlerts[alertKey]) {
         setFiredStudentAlerts((prev) => {
@@ -130,7 +172,7 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ students, buses, not
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buses, myChildren.map((c) => c.id).join(','), leadTimeMinutes, isAutoNotifyEnabled]);
+  }, [buses, governedViews, myChildren.map((c) => c.id).join(','), leadTimeMinutes, isAutoNotifyEnabled]);
 
   if (students.length > 0 && myChildren.length === 0) {
     return (
@@ -185,6 +227,8 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ students, buses, not
             {myChildren.map((child) => {
               const bus = buses.find((b) => b.id === child.busId);
               const status = STATUS_META[child.status];
+              const governed = governedFor(child.name);
+              const etaMinutes = governed?.journey && governed.eta ? minutesUntil(governed.eta.estimatedArrivalAt) : null;
               return (
                 <Card key={child.id} interactive padding="md" onClick={() => setSelectedChildId(child.id)} className="flex items-center gap-3.5">
                   <img src={child.avatar} alt={child.name} className="w-14 h-14 rounded-2xl object-cover border border-border-default shrink-0" />
@@ -200,7 +244,7 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ students, buses, not
                           <span>·</span>
                           <span className="flex items-center gap-1">
                             <Clock className="w-3.5 h-3.5" />
-                            {bus.busNumber} — الوصول خلال {bus.nextStopEtaMins} د
+                            {etaMinutes !== null ? `${bus.busNumber} — الوصول خلال ${etaMinutes} د` : bus.busNumber}
                           </span>
                         </>
                       )}

@@ -3,10 +3,36 @@ import { Route, AIAgentWorkflowStep, Bus as BusType, Student, School, CurrentLoc
 import { AuthUser } from './AuthModal';
 import { legacyAuthHeaders } from '../services/legacyAuthHeaders';
 import { getFleetCurrentLocations } from '../services/currentLocationApi';
+import { listRecommendations } from '../services/approvalsApi';
 import { useGovernedBusNumbers } from '../services/governedBusResolver';
 import { LiveRadar } from './live/LiveRadar';
 import { Card, Metric, Badge, Tabs, MobileTabBar, Button, EmptyState, ConfirmDialog } from './ui';
 import type { TabItem } from './ui';
+
+/**
+ * Real pending-approval count. Phase 9C fix — a real fabricated-KPI bug found
+ * live during the UX audit: this tile used to render a literal "—" string,
+ * never a real number, on the very first thing an admin sees. Now reads the
+ * same `listRecommendations` source the Approval Center itself uses.
+ */
+function usePendingApprovalsCount(userEmail: string | undefined) {
+  const [count, setCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!userEmail) return;
+    let cancelled = false;
+    const load = () =>
+      listRecommendations(userEmail, 'pending')
+        .then((list) => !cancelled && setCount(list.length))
+        .catch(() => !cancelled && setCount(null));
+    load();
+    const interval = setInterval(load, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [userEmail]);
+  return count;
+}
 
 /** Real fleet current-location projection, polled (docs/LIVE_TRACKING_ARCHITECTURE_AUDIT.md). */
 function useFleetLocations(userEmail: string | undefined) {
@@ -115,6 +141,7 @@ export const AdminAIAgentPortal: React.FC<AdminAIAgentPortalProps> = ({
   // (see governedBusResolver.ts / docs/LIVE_TRACKING_ARCHITECTURE_AUDIT.md).
   const governedFleetBusIds = useMemo(() => fleetLocations.map((l) => l.busId), [fleetLocations]);
   const governedBusNumbers = useGovernedBusNumbers(governedFleetBusIds, currentUser?.email);
+  const pendingApprovals = usePendingApprovalsCount(currentUser?.email);
 
   // AI section state
   const [trafficInput] = useState('ازدحام مروري مرتفع عند مخرج حي القرم وشارع السلطان قابوس');
@@ -176,7 +203,10 @@ export const AdminAIAgentPortal: React.FC<AdminAIAgentPortalProps> = ({
     setIsOptimizing(true);
     try {
       const res = await onOptimizeRoutes(trafficInput);
-      if (res?.result) setAiReport(res.result);
+      // Phase 9C fix — see server.ts's optimize-routes comment: `isFallback` distinguishes a
+      // genuine fresh AI analysis from the static template served when the AI service is
+      // unreachable, so this can never be presented as if it were computed for this request.
+      if (res?.result) setAiReport({ ...res.result, isFallback: !!res.isFallback });
     } catch (e) {
       console.error(e);
     } finally {
@@ -188,7 +218,7 @@ export const AdminAIAgentPortal: React.FC<AdminAIAgentPortalProps> = ({
     setIsSimulatingReroute(true);
     try {
       const res = await onTriggerReroute('bus-101', incidentInput);
-      if (res?.rerouteData) setRerouteResult(res.rerouteData);
+      if (res?.rerouteData) setRerouteResult({ ...res.rerouteData, isFallback: !!res.isFallback });
     } catch (e) {
       console.error(e);
     } finally {
@@ -223,7 +253,14 @@ export const AdminAIAgentPortal: React.FC<AdminAIAgentPortalProps> = ({
             <Metric icon={<Bus />} tone="success" value={fleetSummary.activeBuses} total={fleetSummary.totalBuses} label="حافلات نشطة" />
             <Metric icon={<Users />} tone="info" value={fleetSummary.travelingStudents} total={fleetSummary.totalStudents} label="طلاب في الطريق" />
             <Metric icon={<AlertTriangle />} tone={fleetSummary.attention > 0 ? 'danger' : 'neutral'} value={fleetSummary.attention} label="يحتاج انتباه" emphasize={fleetSummary.attention > 0} />
-            <Metric icon={<ShieldAlert />} tone="neutral" value="—" label="طلبات موافقة" onClick={onOpenApprovalCenter} />
+            <Metric
+              icon={<ShieldAlert />}
+              tone={pendingApprovals !== null && pendingApprovals > 0 ? 'warning' : 'neutral'}
+              value={pendingApprovals ?? '—'}
+              label="طلبات موافقة"
+              emphasize={pendingApprovals !== null && pendingApprovals > 0}
+              onClick={onOpenApprovalCenter}
+            />
           </div>
 
           {attentionBuses.length > 0 && (
@@ -339,6 +376,11 @@ export const AdminAIAgentPortal: React.FC<AdminAIAgentPortalProps> = ({
               </div>
             ) : (
               <div className="space-y-3">
+                {aiReport.isFallback && (
+                  <div className="bg-warning-soft border border-warning-border rounded-xl p-2.5 text-xs text-amber-900">
+                    تعذّر الوصول إلى خدمة الذكاء الاصطناعي المباشرة — هذا تقدير عام غير محسوب لبيانات هذه المدرسة تحديداً.
+                  </div>
+                )}
                 <p className="text-sm text-text-primary leading-relaxed">{aiReport.summaryAr}</p>
                 <div className="grid grid-cols-3 gap-2">
                   <div className="bg-success-soft rounded-xl p-2.5 text-center">
@@ -469,6 +511,9 @@ export const AdminAIAgentPortal: React.FC<AdminAIAgentPortalProps> = ({
               <div className="bg-warning-soft border border-warning-border rounded-xl p-3 text-sm text-amber-900 space-y-1">
                 <div className="font-bold">{rerouteResult.rerouteTitleAr}</div>
                 <p className="text-amber-800">{rerouteResult.actionPlanAr}</p>
+                {rerouteResult.isFallback && (
+                  <p className="text-xs text-amber-700 pt-1 border-t border-warning-border">تعذّر الوصول إلى خدمة الذكاء الاصطناعي المباشرة — هذه خطة استرشادية عامة، وليست تحليلاً حياً لهذا الحادث.</p>
+                )}
               </div>
             )}
           </Card>

@@ -90,9 +90,23 @@ export const legacyStudentRepository = {
     return legacyStudentRepository.findById(id);
   },
 
-  /** Phase 8B — the ownership assignment Phase 7K deliberately left unbuilt. Caller (server.ts route) is responsible for validating parentId resolves to an active legacy_users row with role='parent' before calling this — this method performs the write only. */
-  updateParentId: (id: string, parentId: string | null): LegacyStudentView | undefined => {
-    db.update(legacyStudents).set({ parentId, updatedAt: new Date() }).where(eq(legacyStudents.id, id)).run();
+  /**
+   * Phase 8B — the ownership assignment Phase 7K deliberately left unbuilt. Caller (server.ts route) is responsible for
+   * validating parentId resolves to an active legacy_users row with role='parent' before calling this — this method
+   * performs the write only.
+   *
+   * Phase 9C fix — a real P0 found live during the UX audit: this previously wrote `parentId` alone, leaving
+   * `parentName` (the free-text field every UI surface actually displays) pointing at whichever guardian the record
+   * last had. A student reassigned to a new parent account went on showing the OLD guardian's name while the NEW
+   * account's Parent Portal genuinely had access — a live, wrong-name-on-a-real-link state, not just stale demo data.
+   * `parentName` now always follows the authoritative `parentId` link when one is set, matching that field's own
+   * documented contract ("real FK... server-derived"). Unassigning (`parentId: null`) intentionally leaves the
+   * existing name/phone as the last-known guardian on file rather than blanking real contact information.
+   */
+  updateParentId: (id: string, parentId: string | null, parentName?: string): LegacyStudentView | undefined => {
+    const patch: { parentId: string | null; updatedAt: Date; parentName?: string } = { parentId, updatedAt: new Date() };
+    if (parentId !== null && parentName) patch.parentName = parentName;
+    db.update(legacyStudents).set(patch).where(eq(legacyStudents.id, id)).run();
     return legacyStudentRepository.findById(id);
   },
 

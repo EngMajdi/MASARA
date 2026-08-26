@@ -208,17 +208,22 @@ export const DriverPortal: React.FC<DriverPortalProps> = ({ buses, students, rou
                       {std.status === 'boarded' ? 'صعد' : std.status === 'absent' ? 'غائب' : 'ينتظر'}
                     </StatusDot>
                     <div className="flex items-center gap-1 shrink-0">
+                      {/* Phase 9C fix — 44x44 minimum touch target (was 36x36) plus a real aria-label:
+                          this is the primary tap fallback to the swipe gesture on the driver's own
+                          bus, used repeatedly while they may be multitasking. */}
                       <button
                         onClick={() => onUpdateStatus(std.id, 'boarded')}
-                        className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${std.status === 'boarded' ? 'bg-success text-white' : 'bg-slate-100 text-text-secondary hover:bg-success-soft'}`}
+                        className={`w-11 h-11 rounded-lg flex items-center justify-center transition-colors ${std.status === 'boarded' ? 'bg-success text-white' : 'bg-slate-100 text-text-secondary hover:bg-success-soft'}`}
                         title="تسجيل صعود"
+                        aria-label={`تسجيل صعود ${std.name}`}
                       >
                         <CheckCircle2 className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => onUpdateStatus(std.id, 'absent')}
-                        className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${std.status === 'absent' ? 'bg-danger text-white' : 'bg-slate-100 text-text-secondary hover:bg-danger-soft'}`}
+                        className={`w-11 h-11 rounded-lg flex items-center justify-center transition-colors ${std.status === 'absent' ? 'bg-danger text-white' : 'bg-slate-100 text-text-secondary hover:bg-danger-soft'}`}
                         title="تسجيل غياب"
+                        aria-label={`تسجيل غياب ${std.name}`}
                       >
                         <XCircle className="w-4 h-4" />
                       </button>
