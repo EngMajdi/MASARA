@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { KeyRound, Eye, EyeOff, AlertCircle, ShieldCheck } from 'lucide-react';
+import { KeyRound, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { AuthUser } from './AuthModal';
 import { legacyAuthHeaders } from '../services/legacyAuthHeaders';
+import { Button, Field, Input, Alert } from './ui';
 
 interface ForcedPasswordChangeGateProps {
   currentUser: AuthUser;
@@ -16,10 +17,7 @@ interface ForcedPasswordChangeGateProps {
 // even though the actual gate is a frontend concern (server.ts's other
 // routes don't themselves check mustChangePassword — see the phase spec's
 // own note on this being a deliberate, documented scope boundary).
-export const ForcedPasswordChangeGate: React.FC<ForcedPasswordChangeGateProps> = ({
-  currentUser,
-  onPasswordChangedRequireRelogin
-}) => {
+export const ForcedPasswordChangeGate: React.FC<ForcedPasswordChangeGateProps> = ({ currentUser, onPasswordChangedRequireRelogin }) => {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -63,92 +61,51 @@ export const ForcedPasswordChangeGate: React.FC<ForcedPasswordChangeGateProps> =
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4 font-['Tajawal',sans-serif]">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
-        <div className="bg-gradient-to-l from-blue-700 to-indigo-700 px-6 py-5 text-white">
-          <div className="flex items-center gap-2.5">
-            <div className="bg-white/15 p-2 rounded-xl">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="font-bold text-sm">مطلوب تعيين كلمة مرور جديدة</h2>
-              <p className="text-xs text-blue-100 mt-0.5">مرحباً {currentUser.name} — حسابك أُنشئ بكلمة مرور مؤقتة</p>
-            </div>
+    <div className="min-h-screen bg-canvas flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">
+        <div className="flex flex-col items-center text-center mb-6">
+          <div className="w-16 h-16 rounded-2xl bg-primary flex items-center justify-center text-white mb-4">
+            <ShieldCheck className="w-8 h-8" />
           </div>
+          <h1 className="text-xl font-bold text-text-primary">تعيين كلمة مرور جديدة</h1>
+          <p className="text-sm text-text-secondary mt-1">مرحباً {currentUser.name} — حسابك أُنشئ بكلمة مرور مؤقتة</p>
         </div>
 
-        <div className="p-6 space-y-4">
-          <p className="text-xs text-slate-500 leading-relaxed bg-slate-50 border border-slate-200 rounded-xl p-3">
+        <div className="bg-surface border border-border-default rounded-2xl p-5 sm:p-6 space-y-4">
+          <p className="text-xs text-text-secondary leading-relaxed bg-surface-sunken border border-border-default rounded-xl p-3">
             لأسباب أمنية، يجب تعيين كلمة مرور خاصة بك قبل استخدام النظام. لن تتمكن من الوصول لأي جزء من التطبيق حتى تكمل هذه الخطوة.
           </p>
 
           {success ? (
-            <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl p-4 text-sm font-bold text-center">
-              تم تغيير كلمة المرور بنجاح ✅
-              <p className="text-xs font-medium text-emerald-700 mt-1">جارٍ تسجيل الخروج — الرجاء الدخول من جديد بكلمة المرور الجديدة.</p>
-            </div>
+            <Alert tone="success" title="تم تغيير كلمة المرور بنجاح" description="جارٍ تسجيل الخروج — الرجاء الدخول من جديد بكلمة المرور الجديدة." />
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-3.5 text-xs font-medium">
-              {error && (
-                <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl text-rose-800 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                  <span className="font-medium">{error}</span>
-                </div>
-              )}
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {error && <Alert tone="danger" title={error} />}
 
-              <div>
-                <label className="block text-slate-800 font-bold mb-1.5">كلمة المرور المؤقتة (المُرسلة من الإدارة):</label>
+              <Field label="كلمة المرور المؤقتة (المُرسلة من الإدارة)" required>
                 <div className="relative">
-                  <KeyRound className="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5" />
-                  <input
-                    type={showPasswords ? 'text' : 'password'}
-                    required
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    className="w-full pr-10 pl-3 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white text-slate-900 text-xs font-sans transition-all"
-                  />
+                  <KeyRound className="w-4 h-4 text-text-tertiary absolute right-3.5 top-1/2 -translate-y-1/2" />
+                  <Input type={showPasswords ? 'text' : 'password'} required value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} dir="ltr" className="pr-10 text-right" />
                 </div>
-              </div>
+              </Field>
 
-              <div>
-                <label className="block text-slate-800 font-bold mb-1.5">كلمة المرور الجديدة (٨ أحرف على الأقل):</label>
+              <Field label="كلمة المرور الجديدة (٨ أحرف على الأقل)" required>
                 <div className="relative">
-                  <KeyRound className="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5" />
-                  <input
-                    type={showPasswords ? 'text' : 'password'}
-                    required
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="w-full pr-10 pl-10 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white text-slate-900 text-xs font-sans transition-all"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPasswords(!showPasswords)}
-                    className="absolute left-3.5 top-3.5 text-slate-400 hover:text-slate-600"
-                  >
+                  <KeyRound className="w-4 h-4 text-text-tertiary absolute right-3.5 top-1/2 -translate-y-1/2" />
+                  <Input type={showPasswords ? 'text' : 'password'} required value={newPassword} onChange={(e) => setNewPassword(e.target.value)} dir="ltr" className="pr-10 pl-10 text-right" />
+                  <button type="button" onClick={() => setShowPasswords(!showPasswords)} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-tertiary">
                     {showPasswords ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-              </div>
+              </Field>
 
-              <div>
-                <label className="block text-slate-800 font-bold mb-1.5">تأكيد كلمة المرور الجديدة:</label>
-                <input
-                  type={showPasswords ? 'text' : 'password'}
-                  required
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white text-slate-900 text-xs font-sans transition-all"
-                />
-              </div>
+              <Field label="تأكيد كلمة المرور الجديدة" required>
+                <Input type={showPasswords ? 'text' : 'password'} required value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} dir="ltr" className="text-right" />
+              </Field>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-blue-700 hover:bg-blue-800 disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm transition-all"
-              >
-                {loading ? 'جارٍ الحفظ...' : 'تعيين كلمة المرور والمتابعة'}
-              </button>
+              <Button type="submit" variant="primary" fullWidth loading={loading}>
+                تعيين كلمة المرور والمتابعة
+              </Button>
             </form>
           )}
         </div>

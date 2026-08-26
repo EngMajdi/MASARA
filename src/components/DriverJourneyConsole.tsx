@@ -383,14 +383,14 @@ export const DriverJourneyConsole: React.FC<DriverJourneyConsoleProps> = ({ user
 
       {/* Confirmation dialog (spec §58 — "Board Student? [Cancel] [Confirm Boarding]") */}
       {confirming && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 rounded-2xl p-5 max-w-sm w-full space-y-4 shadow-2xl">
             <h3 className="font-bold text-sm text-slate-900">
               {confirming.action.label}؟ <span className="text-slate-500 font-normal">({confirming.journey.studentName ?? 'الطالب'})</span>
             </h3>
             {confirming.action.needsReason && (
               <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">السبب:</label>
+                <label className="block text-xs font-bold text-slate-600 mb-1">السبب:</label>
                 <input
                   type="text"
                   value={reasonInput}

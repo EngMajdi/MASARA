@@ -71,12 +71,12 @@ export const JourneyTimeline: React.FC<JourneyTimelineProps> = ({ journeyId, use
           <div className="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
             <div className="flex items-center justify-between gap-2">
               <span className="font-bold text-xs text-slate-900">{labelFor(ev.eventType)}</span>
-              <span className="text-[10px] text-slate-500 font-mono shrink-0">
+              <span className="text-xs text-slate-500 font-mono shrink-0">
                 {new Date(ev.createdAt).toLocaleString('ar-SA', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
               </span>
             </div>
-            {ev.operatorDecision && <p className="text-[11px] text-slate-600 mt-1">{ev.operatorDecision}</p>}
-            <div className="text-[10px] text-slate-400 mt-1">
+            {ev.operatorDecision && <p className="text-xs text-slate-600 mt-1">{ev.operatorDecision}</p>}
+            <div className="text-xs text-slate-400 mt-1">
               {ev.actorType === 'system' ? 'النظام الذكي' : ev.actorType === 'driver' ? 'السائق' : ev.actorType === 'school' ? 'إدارة المدرسة' : 'المشرف'}
             </div>
           </div>

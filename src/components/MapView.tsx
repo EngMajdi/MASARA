@@ -2,8 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { Bus, School, Student, Route } from '../types';
 import {
-  Play,
-  Pause,
   Filter,
   Eye,
   EyeOff,
@@ -11,7 +9,6 @@ import {
   ChevronDown,
   ChevronUp,
   Map,
-  ShieldAlert,
   Users,
   Compass,
   Bus as BusIcon
@@ -47,18 +44,21 @@ export const MapView: React.FC<MapViewProps> = ({
 
   // Map controls & layout settings
   const [mapHeightMode, setMapHeightMode] = useState<'compact' | 'standard' | 'large'>('standard');
-  const [isSimulating, setIsSimulating] = useState(true);
-  const [showTrafficLayer, setShowTrafficLayer] = useState(true);
   const [showBuses, setShowBuses] = useState(true);
   const [showSchools, setShowSchools] = useState(true);
   const [showStudents, setShowStudents] = useState(true);
   const [showLegend, setShowLegend] = useState(true);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
 
-  const [busPositions, setBusPositions] = useState<{ [id: string]: { lat: number; lng: number } }>({
-    'bus-101': { lat: buses[0]?.currentLocation?.lat || 23.5980, lng: buses[0]?.currentLocation?.lng || 58.4100 },
-    'bus-102': { lat: buses[1]?.currentLocation?.lat || 23.6120, lng: buses[1]?.currentLocation?.lng || 58.2100 }
-  });
+  // Live Tracking Architecture Audit (docs/LIVE_TRACKING_ARCHITECTURE_AUDIT.md
+  // §1a): this map used to animate bus markers toward a hardcoded target
+  // coordinate via a client-side setInterval — a purely cosmetic movement
+  // with zero real data behind it, never written back to the server. That
+  // has been removed. This map now shows each bus's real (if static,
+  // non-live) `currentLocation` snapshot only — never labeled "live" or
+  // animated as if moving. Genuine real-time tracking is the separate
+  // GPS Live Radar component (src/components/live/LiveRadar.tsx), fed by
+  // the actual governed telemetry pipeline.
 
   // Observe container size changes & update Leaflet map canvas
   useEffect(() => {
@@ -222,7 +222,7 @@ export const MapView: React.FC<MapViewProps> = ({
     // 3. Bus Markers
     if (showBuses) {
       buses.forEach((bus) => {
-        const pos = busPositions[bus.id] || bus.currentLocation;
+        const pos = bus.currentLocation;
         const isSelected = bus.id === selectedBusId;
 
         const busIcon = L.divIcon({
@@ -231,14 +231,9 @@ export const MapView: React.FC<MapViewProps> = ({
             <div class="relative group cursor-pointer ${isSelected ? 'scale-110 z-30' : ''} transition-transform">
               <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 via-emerald-500 to-teal-500 border-2 border-white shadow-lg flex items-center justify-center text-white text-base">
                 🚌
-                <span class="absolute -top-1 -right-1 flex h-2.5 w-2.5">
-                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-300"></span>
-                </span>
               </div>
-              <div class="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-slate-900 text-emerald-300 text-[9px] font-bold px-2 py-0.5 rounded border border-emerald-500/50 shadow flex items-center gap-1">
+              <div class="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-slate-900 text-emerald-300 text-[9px] font-bold px-2 py-0.5 rounded border border-emerald-500/50 shadow">
                 <span>${bus.busNumber}</span>
-                <span class="text-white bg-emerald-700 px-1 rounded">${bus.speedKmH} كم/س</span>
               </div>
             </div>
           `,
@@ -285,30 +280,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
       polylineRef.current = polyline;
     }
-  }, [buses, schools, students, routes, selectedBusId, busPositions, showBuses, showSchools, showStudents, isExpanded]);
-
-  // Simulation Loop
-  useEffect(() => {
-    if (!isSimulating || !isExpanded) return;
-
-    const interval = setInterval(() => {
-      setBusPositions((prev) => {
-        const cur101 = prev['bus-101'] || { lat: 23.5980, lng: 58.4100 };
-        const targetLat = 23.6100;
-        const targetLng = 58.4200;
-
-        const nextLat = cur101.lat + (targetLat - cur101.lat) * 0.02;
-        const nextLng = cur101.lng + (targetLng - cur101.lng) * 0.02;
-
-        return {
-          ...prev,
-          'bus-101': { lat: nextLat, lng: nextLng }
-        };
-      });
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [isSimulating, isExpanded]);
+  }, [buses, schools, students, routes, selectedBusId, showBuses, showSchools, showStudents, isExpanded]);
 
   // Fit Bounds
   const handleFitAllBounds = () => {
@@ -318,8 +290,7 @@ export const MapView: React.FC<MapViewProps> = ({
     const latLngs: [number, number][] = [];
 
     buses.forEach((b) => {
-      const pos = busPositions[b.id] || b.currentLocation;
-      if (pos) latLngs.push([pos.lat, pos.lng]);
+      if (b.currentLocation) latLngs.push([b.currentLocation.lat, b.currentLocation.lng]);
     });
 
     schools.forEach((s) => {
@@ -340,7 +311,7 @@ export const MapView: React.FC<MapViewProps> = ({
   const centerOnBus = (busId: string) => {
     const map = mapInstanceRef.current;
     if (!map) return;
-    const pos = busPositions[busId] || buses.find((b) => b.id === busId)?.currentLocation;
+    const pos = buses.find((b) => b.id === busId)?.currentLocation;
     if (pos) {
       map.flyTo([pos.lat, pos.lng], 15, { duration: 1.0 });
     }
@@ -365,15 +336,11 @@ export const MapView: React.FC<MapViewProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm sm:text-base font-bold text-slate-900">
-                الخريطة المباشرة — مواقع الحافلات والطلاب الآن
+                نظرة عامة على الأسطول
               </h2>
-              <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-200/80 shrink-0 flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>تحديث حي</span>
-              </span>
             </div>
-            <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
-              متابعة متزامنة للحافلات، نقاط الصعود، والتنبيهات المرورية بمسقط
+            <p className="text-xs text-slate-500 mt-0.5">
+              مواقع الحافلات ونقاط الطلاب المسجّلة — للتتبع المباشر الفعلي، افتح "GPS Live Radar" أدناه
             </p>
           </div>
         </div>
@@ -446,19 +413,6 @@ export const MapView: React.FC<MapViewProps> = ({
                   <Crosshair className="w-3.5 h-3.5 text-blue-600" />
                   <span className="hidden md:inline">احتواء</span>
                 </button>
-
-                <button
-                  onClick={() => setIsSimulating(!isSimulating)}
-                  title={isSimulating ? 'توقف الحركة' : 'تشغيل الحركة'}
-                  className={`p-1.5 rounded-lg text-xs font-bold transition-colors border flex items-center gap-1 ${
-                    isSimulating
-                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500 shadow-2xs'
-                      : 'bg-slate-50 text-slate-700 border-slate-200'
-                  }`}
-                >
-                  {isSimulating ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                  <span className="hidden md:inline">{isSimulating ? 'مباشر 🟢' : 'متوقف'}</span>
-                </button>
               </div>
 
               {/* Left Side: Map Height Selector & Filters */}
@@ -508,15 +462,6 @@ export const MapView: React.FC<MapViewProps> = ({
                           checked={showStudents}
                           onChange={(e) => setShowStudents(e.target.checked)}
                           className="rounded accent-blue-600"
-                        />
-                      </label>
-                      <label className="flex items-center justify-between cursor-pointer hover:bg-slate-50 p-1 rounded">
-                        <span>🚗 شريط الازدحام</span>
-                        <input
-                          type="checkbox"
-                          checked={showTrafficLayer}
-                          onChange={(e) => setShowTrafficLayer(e.target.checked)}
-                          className="rounded accent-amber-600"
                         />
                       </label>
                     </div>
@@ -570,36 +515,27 @@ export const MapView: React.FC<MapViewProps> = ({
 
             {/* Collapsible Legend Overlay */}
             {showLegend && (
-              <div className="absolute bottom-2.5 right-2.5 left-2.5 z-20 bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-xl p-2.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-700 shadow-sm">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <div className="flex items-center gap-1 font-medium">
-                    <span className="w-2.5 h-2.5 rounded bg-amber-500 inline-block"></span>
-                    <span>المدرسة</span>
-                  </div>
-                  <div className="flex items-center gap-1 font-medium">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
-                    <span>حافلة حية</span>
-                  </div>
-                  <div className="flex items-center gap-1 font-medium">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block"></span>
-                    <span>تم الصعود ✅</span>
-                  </div>
-                  <div className="flex items-center gap-1 font-medium">
-                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block"></span>
-                    <span>ينتظر ⏳</span>
-                  </div>
-                  <div className="flex items-center gap-1 font-medium">
-                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
-                    <span>غائب ❌</span>
-                  </div>
+              <div className="absolute bottom-2.5 right-2.5 left-2.5 z-20 bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-xl p-2.5 flex flex-wrap items-center gap-3 text-xs text-slate-700 shadow-sm">
+                <div className="flex items-center gap-1 font-medium">
+                  <span className="w-2.5 h-2.5 rounded bg-amber-500 inline-block"></span>
+                  <span>المدرسة</span>
                 </div>
-
-                {showTrafficLayer && (
-                  <div className="flex items-center gap-1 text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded text-[10px] font-medium">
-                    <ShieldAlert className="w-3 h-3 text-amber-600 shrink-0" />
-                    <span>حركة مرورية انسيابية بمسقط</span>
-                  </div>
-                )}
+                <div className="flex items-center gap-1 font-medium">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
+                  <span>حافلة</span>
+                </div>
+                <div className="flex items-center gap-1 font-medium">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block"></span>
+                  <span>تم الصعود ✅</span>
+                </div>
+                <div className="flex items-center gap-1 font-medium">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block"></span>
+                  <span>ينتظر ⏳</span>
+                </div>
+                <div className="flex items-center gap-1 font-medium">
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
+                  <span>غائب ❌</span>
+                </div>
               </div>
             )}
           </div>

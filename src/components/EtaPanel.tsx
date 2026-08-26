@@ -108,11 +108,11 @@ export const EtaPanel: React.FC<EtaPanelProps> = ({ userEmail, scope }) => {
                 <Navigation className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                 <span>{scope.type === 'bus' && scope.label ? scope.label : `حافلة ${eta.busId.slice(0, 8)}…`}</span>
               </div>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold border bg-white/70">{STATUS_LABELS[eta.status] ?? eta.status}</span>
+              <span className="px-2 py-0.5 rounded-full text-xs font-bold border bg-white/70">{STATUS_LABELS[eta.status] ?? eta.status}</span>
             </div>
 
             {isLive ? (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                 <div className="flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                   <div>
@@ -143,10 +143,10 @@ export const EtaPanel: React.FC<EtaPanelProps> = ({ userEmail, scope }) => {
                 </div>
               </div>
             ) : (
-              <p className="text-[11px] text-slate-500">{eta.explanation.reason}</p>
+              <p className="text-xs text-slate-500">{eta.explanation.reason}</p>
             )}
 
-            <div className="flex items-center justify-between mt-2 pt-2 border-t border-black/5 text-[10px] text-slate-500">
+            <div className="flex items-center justify-between mt-2 pt-2 border-t border-black/5 text-xs text-slate-500">
               <span>الثقة: {CONFIDENCE_LABELS[eta.confidence] ?? eta.confidence}</span>
               {eta.delay && eta.delay.classification !== 'ON_TIME' && (
                 <span className="font-bold">{eta.delay.classification === 'SIGNIFICANT_DELAY' ? 'تأخر ملحوظ' : 'تأخر بسيط'}</span>

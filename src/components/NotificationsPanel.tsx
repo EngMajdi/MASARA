@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { NotificationView } from '../types';
 import { getParentNotifications, markNotificationRead } from '../services/notificationApi';
-import { Bell, Bus, MapPin, DoorOpen, AlertTriangle, Siren, RefreshCw, Inbox, AlertOctagon } from 'lucide-react';
+import { Bell, Bus, MapPin, DoorOpen, AlertTriangle, Siren, Loader2 } from 'lucide-react';
+import { Card, ErrorState } from './ui';
+import type { Tone } from './ui';
 
 interface NotificationsPanelProps {
   userEmail: string;
@@ -14,22 +16,10 @@ const CATEGORY_ICON: Record<string, React.ReactNode> = {
   ARRIVAL: <MapPin className="w-4 h-4" />,
   DROPPED_OFF: <DoorOpen className="w-4 h-4" />,
   STATUS: <AlertTriangle className="w-4 h-4" />,
-  INCIDENT: <Siren className="w-4 h-4" />,
+  INCIDENT: <Siren className="w-4 h-4" />
 };
 
-const PRIORITY_STYLES: Record<string, string> = {
-  LOW: 'border-slate-200 bg-slate-50',
-  NORMAL: 'border-slate-200 bg-slate-50',
-  HIGH: 'border-amber-200 bg-amber-50',
-  CRITICAL: 'border-rose-300 bg-rose-50',
-};
-
-const PRIORITY_ICON_COLOR: Record<string, string> = {
-  LOW: 'text-slate-500',
-  NORMAL: 'text-blue-600',
-  HIGH: 'text-amber-600',
-  CRITICAL: 'text-rose-600',
-};
+const PRIORITY_TONE: Record<string, Tone> = { LOW: 'neutral', NORMAL: 'info', HIGH: 'warning', CRITICAL: 'danger' };
 
 function timeAgo(iso: string): string {
   const seconds = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
@@ -42,10 +32,21 @@ function timeAgo(iso: string): string {
   return `منذ ${days} يوم`;
 }
 
-// Governed Notifications (Phase 5B) — reads ONLY the server-produced,
-// deterministic notification record. No eventType, no internal IDs, no GPS
-// coordinates, no AI/governance information is ever rendered here — the
-// server DTO simply doesn't carry any of that (see notificationContract.ts).
+const TONE_ICON_CLASSES: Record<Tone, string> = {
+  neutral: 'bg-slate-100 text-slate-500',
+  info: 'bg-info-soft text-sky-600',
+  warning: 'bg-warning-soft text-amber-600',
+  danger: 'bg-danger-soft text-rose-600',
+  success: 'bg-success-soft text-emerald-600'
+};
+
+/**
+ * Governed Notifications (Phase 5B) — reads ONLY the server-produced,
+ * deterministic notification record; no internal IDs/GPS/AI details are
+ * ever rendered here (see notificationContract.ts). Folded into the
+ * Parent portal's single "الإشعارات" section (see ParentPortal.tsx) so a
+ * parent sees one feed rather than two competing notification lists.
+ */
 export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ userEmail }) => {
   const [items, setItems] = useState<NotificationView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -69,10 +70,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ userEmai
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userEmail]);
 
-  const unreadCount = items?.filter((n) => !n.readAt).length ?? 0;
-
   const handleMarkRead = (id: string) => {
-    // Optimistic-but-honest: update local read state only after the server confirms it (never fabricate the mutation's result).
     markNotificationRead(id, userEmail)
       .then((updated) => setItems((prev) => (prev ? prev.map((n) => (n.id === updated.id ? updated : n)) : prev)))
       .catch(() => {
@@ -80,60 +78,40 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ userEmai
       });
   };
 
-  return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3 shadow-sm">
-      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-        <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-          <Bell className="w-4 h-4 text-blue-600" />
-          <span>الإشعارات</span>
-        </h3>
-        {unreadCount > 0 && (
-          <span className="bg-rose-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center">{unreadCount}</span>
-        )}
+  if (loading && !items) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-6 text-text-secondary text-sm">
+        <Loader2 className="w-4 h-4 animate-spin" />
+        <span>جاري تحميل الإشعارات...</span>
       </div>
+    );
+  }
 
-      {loading && !items ? (
-        <div className="flex items-center justify-center gap-2 py-6 text-slate-500 text-xs font-medium">
-          <RefreshCw className="w-4 h-4 animate-spin" />
-          <span>جاري تحميل الإشعارات...</span>
-        </div>
-      ) : error ? (
-        <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-rose-800 text-xs flex items-center gap-2">
-          <AlertOctagon className="w-4 h-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      ) : !items || items.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 py-6 text-slate-400 text-xs font-medium">
-          <Inbox className="w-6 h-6" />
-          <span>لا توجد إشعارات حالياً.</span>
-        </div>
-      ) : (
-        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-          {items.map((n) => (
-            <button
-              key={n.id}
-              onClick={() => !n.readAt && handleMarkRead(n.id)}
-              className={`w-full text-right rounded-xl border px-3 py-2.5 text-xs transition-colors ${PRIORITY_STYLES[n.priority] ?? PRIORITY_STYLES.NORMAL} ${
-                n.readAt ? 'opacity-60' : ''
-              }`}
-            >
-              <div className="flex items-start gap-2.5">
-                <span className={`shrink-0 mt-0.5 ${PRIORITY_ICON_COLOR[n.priority] ?? PRIORITY_ICON_COLOR.NORMAL}`}>
-                  {CATEGORY_ICON[n.category] ?? <Bell className="w-4 h-4" />}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className={`font-bold text-slate-900 ${n.readAt ? '' : 'font-black'}`}>{n.title}</span>
-                    {!n.readAt && <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0" />}
-                  </div>
-                  <p className="text-slate-600 mt-0.5 leading-relaxed">{n.body}</p>
-                  <span className="text-[10px] text-slate-400 mt-1 block">{timeAgo(n.createdAt)}</span>
+  if (error) return <ErrorState message={error} onRetry={load} />;
+  if (!items || items.length === 0) return null;
+
+  return (
+    <div className="space-y-2.5">
+      {items.map((n) => {
+        const tone = PRIORITY_TONE[n.priority] ?? 'info';
+        return (
+          <Card key={n.id} padding="sm" interactive={!n.readAt} onClick={() => !n.readAt && handleMarkRead(n.id)} className={n.readAt ? 'opacity-60' : ''}>
+            <div className="flex items-start gap-2.5">
+              <span className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${TONE_ICON_CLASSES[tone]}`}>
+                {CATEGORY_ICON[n.category] ?? <Bell className="w-4 h-4" />}
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-sm text-text-primary">{n.title}</span>
+                  {!n.readAt && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
                 </div>
+                <p className="text-sm text-text-secondary mt-0.5 leading-relaxed">{n.body}</p>
+                <span className="text-xs text-text-tertiary mt-1 block">{timeAgo(n.createdAt)}</span>
               </div>
-            </button>
-          ))}
-        </div>
-      )}
+            </div>
+          </Card>
+        );
+      })}
     </div>
   );
 };

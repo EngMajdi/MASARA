@@ -1,44 +1,85 @@
 @import "tailwindcss";
 
+/* ============================================================
+   MASARA DESIGN SYSTEM — Phase 9B
+   A calm, trustworthy, human-centered visual language for a real
+   school-transportation product. Semantic tokens only — every
+   color name below describes MEANING, not a hue, so status colors
+   stay disciplined across every screen instead of drifting into
+   decorative purples/gradients/neon.
+   ============================================================ */
+@theme {
+  --font-sans: 'Tajawal', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  /* Brand */
+  --color-primary: var(--color-blue-600);
+  --color-primary-hover: var(--color-blue-700);
+  --color-primary-soft: var(--color-blue-50);
+  --color-primary-border: var(--color-blue-200);
+
+  /* Status — used ONLY to communicate state, never decoration */
+  --color-success: var(--color-emerald-600);
+  --color-success-soft: var(--color-emerald-50);
+  --color-success-border: var(--color-emerald-200);
+
+  --color-warning: var(--color-amber-600);
+  --color-warning-soft: var(--color-amber-50);
+  --color-warning-border: var(--color-amber-200);
+
+  --color-danger: var(--color-rose-600);
+  --color-danger-soft: var(--color-rose-50);
+  --color-danger-border: var(--color-rose-200);
+
+  --color-info: var(--color-sky-600);
+  --color-info-soft: var(--color-sky-50);
+  --color-info-border: var(--color-sky-200);
+
+  /* Surfaces & text */
+  --color-canvas: var(--color-slate-50);
+  --color-surface: #ffffff;
+  --color-surface-sunken: var(--color-slate-50);
+  --color-border-default: var(--color-slate-200);
+  --color-border-strong: var(--color-slate-300);
+
+  --color-text-primary: var(--color-slate-900);
+  --color-text-secondary: var(--color-slate-600);
+  --color-text-tertiary: var(--color-slate-400);
+  --color-text-inverse: #ffffff;
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;
     -webkit-tap-highlight-color: transparent;
   }
-  
+
   body {
-    font-family: 'Tajawal', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background-color: #f8fafc;
-    color: #0f172a;
+    font-family: var(--font-sans);
+    background-color: var(--color-canvas);
+    color: var(--color-text-primary);
     overflow-x: hidden;
+    font-variant-numeric: tabular-nums;
   }
 
-  /* Custom smooth scrollbars */
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: #f1f5f9;
+    background: var(--color-surface-sunken);
   }
   ::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
+    background: var(--color-border-strong);
     border-radius: 9999px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
+    background: var(--color-slate-400);
   }
 }
 
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes shake {
@@ -47,10 +88,26 @@
   40%, 80% { transform: translateX(4px); }
 }
 
-.animate-fade-in {
-  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
 }
 
-.animate-shake {
-  animation: shake 0.4s ease-in-out;
+@keyframes slideInEnd {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
 }
+
+/* RTL-aware: a "drawer from the edge" must open from the trailing edge,
+   which in Arabic RTL is the LEFT, not the right — so this animates on
+   translateX(100%) -> 0 while the drawer itself is positioned `left-0`. */
+.animate-fade-in { animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-shake { animation: shake 0.4s ease-in-out; }
+.animate-slide-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-slide-in-end { animation: slideInEnd 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.animate-skeleton { animation: skeletonPulse 1.5s ease-in-out infinite; }

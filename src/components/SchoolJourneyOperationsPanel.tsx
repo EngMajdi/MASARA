@@ -64,7 +64,7 @@ export const SchoolJourneyOperationsPanel: React.FC<SchoolJourneyOperationsPanel
           <Radio className="w-4 h-4 text-blue-600" />
           <span>عمليات الرحلات الطلابية المباشرة</span>
         </h3>
-        <span className="text-[10px] text-slate-500 font-mono flex items-center gap-1">
+        <span className="text-xs text-slate-500 font-mono flex items-center gap-1">
           <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
           تحديث تلقائي كل {POLL_MS / 1000} ثوانٍ
         </span>
@@ -122,25 +122,25 @@ export const SchoolJourneyOperationsPanel: React.FC<SchoolJourneyOperationsPanel
                       <div className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
                         <span>{busNumber ?? 'حافلة غير محددة'}</span>
                         {hasIncident && (
-                          <span className="flex items-center gap-1 text-rose-700 bg-rose-100 border border-rose-300 px-1.5 py-0.5 rounded-full text-[9px] font-bold">
+                          <span className="flex items-center gap-1 text-rose-700 bg-rose-100 border border-rose-300 px-1.5 py-0.5 rounded-full text-xs font-bold">
                             <AlertTriangle className="w-3 h-3" />
                             حادثة
                           </span>
                         )}
                       </div>
-                      <div className="text-[10px] text-slate-500">
+                      <div className="text-xs text-slate-500">
                         {routeName ?? 'مسار غير محدد'} {driverName ? `— ${driverName}` : ''}
                       </div>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[10px] font-bold text-slate-600 bg-white border border-slate-200 px-2 py-1 rounded-full flex items-center gap-1">
+                    <span className="text-xs font-bold text-slate-600 bg-white border border-slate-200 px-2 py-1 rounded-full flex items-center gap-1">
                       <Users className="w-3 h-3 text-amber-600" />
                       {summary.totalStudents} طالب
                     </span>
                     {nonZero.map((state) => (
-                      <span key={state} className="text-[9px] font-bold text-slate-600 bg-white border border-slate-200 px-2 py-0.5 rounded-full">
+                      <span key={state} className="text-xs font-bold text-slate-600 bg-white border border-slate-200 px-2 py-0.5 rounded-full">
                         {JOURNEY_STATE_LABELS[state]}: {summary.counts[state]}
                       </span>
                     ))}

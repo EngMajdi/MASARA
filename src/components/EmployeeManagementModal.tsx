@@ -1,19 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import {
-  X,
-  UserPlus,
-  Users,
-  ShieldCheck,
-  ShieldOff,
-  KeyRound,
-  LogOut,
-  Copy,
-  Check,
-  AlertCircle,
-  Plus
-} from 'lucide-react';
+import { UserPlus, ShieldCheck, ShieldOff, KeyRound, LogOut, Copy, Check, Plus, Users } from 'lucide-react';
 import { AuthUser } from './AuthModal';
 import { legacyAuthHeaders } from '../services/legacyAuthHeaders';
+import { Sheet, Card, Field, Input, Select, Button, Badge, Alert, EmptyState, FormSection } from './ui';
+import type { Tone } from './ui';
 
 interface Employee {
   id: string;
@@ -31,11 +21,7 @@ interface EmployeeManagementModalProps {
   currentUser: AuthUser | null;
 }
 
-const ROLE_LABELS: Record<Employee['role'], string> = {
-  driver: 'سائق',
-  school: 'مدرسة',
-  admin: 'مشرف عام'
-};
+const ROLE_LABELS: Record<Employee['role'], string> = { driver: 'سائق', school: 'مدرسة', admin: 'مشرف عام' };
 
 // Phase 8B — admin-only employee lifecycle management. No email dependency
 // anywhere here: every temporary credential is shown exactly once, in this
@@ -45,6 +31,7 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -83,16 +70,13 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
       return;
     }
     try {
-      const res = await fetch('/api/admin/employees', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ name: name.trim(), email: email.trim(), role })
-      });
+      const res = await fetch('/api/admin/employees', { method: 'POST', headers, body: JSON.stringify({ name: name.trim(), email: email.trim(), role }) });
       const data = await res.json();
       if (data.success) {
         setRevealedCredential({ email: data.employee.email, password: data.temporaryPassword });
         setName('');
         setEmail('');
+        setShowForm(false);
         loadEmployees();
       } else {
         setError(data.error || 'تعذّر إنشاء الحساب.');
@@ -151,185 +135,108 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto font-['Tajawal',sans-serif]">
-      <div className="bg-white border border-slate-200/90 rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden relative text-slate-900 my-auto max-h-[92vh] flex flex-col">
-        {/* Header */}
-        <div className="bg-slate-950 p-4 sm:p-5 text-white flex items-center justify-between border-b border-slate-800 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-indigo-600/30 text-indigo-400 rounded-2xl border border-indigo-400/30 shrink-0">
-              <Users className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="text-base sm:text-lg font-black tracking-tight text-white">إدارة حسابات الموظفين</h3>
-              <p className="text-[11px] sm:text-xs text-slate-400 font-medium">
-                إنشاء وتفعيل وتعطيل حسابات السائقين وموظفي المدرسة — بدون بريد إلكتروني
-              </p>
-            </div>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 shrink-0">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* One-time credential reveal */}
+    <Sheet isOpen={isOpen} onClose={onClose} title="إدارة الموظفين" subtitle="حسابات السائقين وموظفي المدرسة">
+      <div className="space-y-4">
         {revealedCredential && (
-          <div className="bg-amber-50 border-b border-amber-200 p-4 space-y-2">
-            <div className="flex items-center gap-2 text-amber-900 font-bold text-xs">
+          <div className="bg-warning-soft border border-warning-border rounded-2xl p-4 space-y-2">
+            <div className="flex items-center gap-2 text-amber-900 font-bold text-sm">
               <KeyRound className="w-4 h-4" />
-              <span>كلمة المرور المؤقتة — تُعرض مرة واحدة فقط ولن تظهر مجدداً</span>
+              <span>كلمة المرور المؤقتة — تُعرض مرة واحدة فقط</span>
             </div>
-            <p className="text-[11px] text-amber-800">
-              يرجى نسخ هذه البيانات ومشاركتها مع الموظف مباشرة (شخصياً أو هاتفياً) — لا يوجد مزود بريد إلكتروني مُفعّل في هذه البيئة.
-            </p>
-            <div className="bg-white border border-amber-300 rounded-xl p-3 flex items-center justify-between gap-3 font-sans" dir="ltr">
-              <div className="text-xs">
-                <div className="text-slate-500">{revealedCredential.email}</div>
-                <div className="font-bold text-slate-900 text-sm">{revealedCredential.password}</div>
+            <p className="text-xs text-amber-800">شارك هذه البيانات مع الموظف مباشرة (شخصياً أو هاتفياً) — لا يوجد بريد إلكتروني مُفعّل لإرسالها تلقائياً.</p>
+            <div className="bg-surface border border-warning-border rounded-xl p-3 flex items-center justify-between gap-3" dir="ltr">
+              <div className="text-sm">
+                <div className="text-text-secondary text-xs">{revealedCredential.email}</div>
+                <div className="font-bold text-text-primary">{revealedCredential.password}</div>
               </div>
-              <button
-                onClick={copyToClipboard}
-                className="flex items-center gap-1 bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg shrink-0"
-              >
-                {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copied ? 'تم النسخ' : 'نسخ'}</span>
-              </button>
+              <Button size="sm" variant="secondary" icon={copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />} onClick={copyToClipboard}>
+                {copied ? 'تم النسخ' : 'نسخ'}
+              </Button>
             </div>
-            <button
-              onClick={() => setRevealedCredential(null)}
-              className="text-[11px] text-amber-700 font-bold underline"
-            >
+            <button onClick={() => setRevealedCredential(null)} className="text-xs text-amber-700 font-bold underline">
               فهمت، إخفاء هذا التنبيه
             </button>
           </div>
         )}
 
-        {error && (
-          <div className="bg-rose-50 border-b border-rose-200 px-4 py-2.5 text-xs text-rose-800 font-bold flex items-center gap-2 shrink-0">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{error}</span>
-          </div>
+        {error && <Alert tone="danger" title={error} onDismiss={() => setError(null)} />}
+
+        {!showForm ? (
+          <Button variant="secondary" fullWidth icon={<UserPlus className="w-4 h-4" />} onClick={() => setShowForm(true)}>
+            إضافة موظف جديد
+          </Button>
+        ) : (
+          <Card as="form" onSubmit={handleCreate} className="space-y-4">
+            <FormSection title="حساب موظف جديد" description="سائق، مدرسة، أو مشرف عام">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="الاسم الكامل" required>
+                  <Input required value={name} onChange={(e) => setName(e.target.value)} />
+                </Field>
+                <Field label="البريد الإلكتروني (للدخول)" required>
+                  <Input type="email" required dir="ltr" value={email} onChange={(e) => setEmail(e.target.value)} className="text-right" />
+                </Field>
+                <Field label="الدور الوظيفي" className="sm:col-span-2">
+                  <Select value={role} onChange={(e) => setRole(e.target.value as Employee['role'])}>
+                    <option value="driver">سائق</option>
+                    <option value="school">مدرسة</option>
+                    <option value="admin">مشرف عام</option>
+                  </Select>
+                </Field>
+              </div>
+            </FormSection>
+            <div className="flex gap-2">
+              <Button variant="ghost" onClick={() => setShowForm(false)}>إلغاء</Button>
+              <Button type="submit" fullWidth icon={<Plus className="w-4 h-4" />}>إنشاء الحساب</Button>
+            </div>
+          </Card>
         )}
 
-        <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-5 bg-slate-50/50">
-          {/* Create employee form */}
-          <form onSubmit={handleCreate} className="bg-white border border-slate-200/90 p-4 sm:p-5 rounded-2xl shadow-2xs space-y-4">
-            <h4 className="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-2.5">
-              <UserPlus className="w-4 h-4 text-blue-600" />
-              <span>إضافة موظف جديد (سائق / مدرسة / مشرف عام)</span>
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">الاسم الكامل:</label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none focus:border-blue-600 focus:bg-white"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">البريد الإلكتروني (للدخول):</label>
-                <input
-                  type="email"
-                  required
-                  dir="ltr"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none focus:border-blue-600 focus:bg-white font-sans text-right"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">الدور الوظيفي:</label>
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as Employee['role'])}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 focus:outline-none focus:border-blue-600 focus:bg-white"
-                >
-                  <option value="driver">سائق</option>
-                  <option value="school">مدرسة</option>
-                  <option value="admin">مشرف عام</option>
-                </select>
-              </div>
-            </div>
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs flex items-center gap-2"
-              >
-                <Plus className="w-4 h-4" />
-                <span>إنشاء الحساب وتوليد كلمة مرور مؤقتة</span>
-              </button>
-            </div>
-          </form>
-
-          {/* Employee list */}
-          <div className="bg-white border border-slate-200/90 p-4 rounded-2xl shadow-2xs space-y-3">
-            <h4 className="font-bold text-xs text-slate-800">الموظفون الحاليون ({employees.length}):</h4>
-            {loading ? (
-              <div className="text-center py-6 text-slate-400 text-xs">جارٍ التحميل...</div>
-            ) : employees.length === 0 ? (
-              <div className="text-center py-6 text-slate-400 text-xs">لا يوجد موظفون بعد</div>
-            ) : (
-              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                {employees.map((emp) => (
-                  <div key={emp.id} className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs space-y-2">
+        <div>
+          <h3 className="text-sm font-bold text-text-primary mb-2">الموظفون ({employees.length})</h3>
+          {loading ? (
+            <div className="text-center py-6 text-text-tertiary text-sm">جارٍ التحميل...</div>
+          ) : employees.length === 0 ? (
+            <EmptyState icon={<Users />} title="لا يوجد موظفون بعد" />
+          ) : (
+            <div className="space-y-2">
+              {employees.map((emp) => {
+                const statusTone: Tone = emp.status === 'active' ? 'success' : 'danger';
+                return (
+                  <Card key={emp.id} padding="sm" className="space-y-2.5">
                     <div className="flex items-center justify-between flex-wrap gap-1.5">
                       <div>
-                        <span className="font-bold text-slate-900">{emp.name}</span>
-                        <span className="text-slate-400 mx-1.5">•</span>
-                        <span className="text-slate-500 font-sans" dir="ltr">{emp.email}</span>
+                        <span className="font-bold text-sm text-text-primary">{emp.name}</span>
+                        <div className="text-xs text-text-secondary" dir="ltr">{emp.email}</div>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className="bg-slate-200 text-slate-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{ROLE_LABELS[emp.role]}</span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${emp.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                          {emp.status === 'active' ? 'نشط' : 'معطّل'}
-                        </span>
-                        {emp.mustChangePassword && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">بانتظار أول دخول</span>
-                        )}
+                        <Badge tone="neutral">{ROLE_LABELS[emp.role]}</Badge>
+                        <Badge tone={statusTone}>{emp.status === 'active' ? 'نشط' : 'معطّل'}</Badge>
+                        {emp.mustChangePassword && <Badge tone="warning">بانتظار أول دخول</Badge>}
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <button
+                      <Button
+                        size="sm"
+                        variant={emp.status === 'active' ? 'danger' : 'secondary'}
+                        icon={emp.status === 'active' ? <ShieldOff className="w-3.5 h-3.5" /> : <ShieldCheck className="w-3.5 h-3.5" />}
                         onClick={() => handleToggleStatus(emp)}
-                        className={`flex items-center gap-1 text-[10.5px] font-bold px-2.5 py-1.5 rounded-lg border ${
-                          emp.status === 'active'
-                            ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
-                            : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                        }`}
                       >
-                        {emp.status === 'active' ? <ShieldOff className="w-3.5 h-3.5" /> : <ShieldCheck className="w-3.5 h-3.5" />}
-                        <span>{emp.status === 'active' ? 'تعطيل الحساب' : 'تفعيل الحساب'}</span>
-                      </button>
-                      <button
-                        onClick={() => handleResetCredential(emp)}
-                        className="flex items-center gap-1 text-[10.5px] font-bold px-2.5 py-1.5 rounded-lg border bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
-                      >
-                        <KeyRound className="w-3.5 h-3.5" />
-                        <span>إعادة تعيين بيانات الدخول</span>
-                      </button>
-                      <button
-                        onClick={() => handleRevokeSessions(emp)}
-                        className="flex items-center gap-1 text-[10.5px] font-bold px-2.5 py-1.5 rounded-lg border bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200"
-                      >
-                        <LogOut className="w-3.5 h-3.5" />
-                        <span>تسجيل خروج من كل الأجهزة</span>
-                      </button>
+                        {emp.status === 'active' ? 'تعطيل' : 'تفعيل'}
+                      </Button>
+                      <Button size="sm" variant="secondary" icon={<KeyRound className="w-3.5 h-3.5" />} onClick={() => handleResetCredential(emp)}>
+                        إعادة تعيين كلمة المرور
+                      </Button>
+                      <Button size="sm" variant="ghost" icon={<LogOut className="w-3.5 h-3.5" />} onClick={() => handleRevokeSessions(emp)}>
+                        تسجيل خروج من كل الأجهزة
+                      </Button>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="bg-slate-100/90 p-3.5 border-t border-slate-200 flex justify-end shrink-0">
-          <button onClick={onClose} className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-6 py-2.5 rounded-xl text-xs">
-            إغلاق
-          </button>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
-    </div>
+    </Sheet>
   );
 };

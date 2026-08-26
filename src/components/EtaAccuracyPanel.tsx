@@ -105,15 +105,15 @@ export const EtaAccuracyPanel: React.FC<EtaAccuracyPanelProps> = ({ userEmail })
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${SOURCE_MIX_STYLES[view.sourceMix]}`}>
+        <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${SOURCE_MIX_STYLES[view.sourceMix]}`}>
           مصدر البيانات: {SOURCE_MIX_LABELS[view.sourceMix]}
         </span>
-        <span className="text-[10px] text-slate-500 font-medium">
+        <span className="text-xs text-slate-500 font-medium">
           التغطية: {formatPercentage(view.coverage != null ? view.coverage * 100 : null)} ({view.measurableSamples} من {view.totalCandidates})
         </span>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
           <div className="text-slate-500">عدد العينات</div>
           <div className="font-bold text-slate-900 text-sm">{view.measurableSamples}</div>
@@ -148,13 +148,13 @@ export const EtaAccuracyPanel: React.FC<EtaAccuracyPanelProps> = ({ userEmail })
 
       {view.byConfidence.length > 0 && (
         <div className="rounded-xl border border-slate-200 overflow-hidden">
-          <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-600 flex items-center gap-1.5">
+          <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-600 flex items-center gap-1.5">
             <Target className="w-3 h-3" />
             <span>التوزيع حسب مستوى الثقة</span>
           </div>
           <div className="divide-y divide-slate-100">
             {view.byConfidence.map((g) => (
-              <div key={g.group} className="flex items-center justify-between px-3 py-1.5 text-[11px]">
+              <div key={g.group} className="flex items-center justify-between px-3 py-1.5 text-xs">
                 <span className="font-bold text-slate-700">{CONFIDENCE_LABELS[g.group] ?? g.group}</span>
                 <span className="text-slate-500">
                   {g.sampleCount} عينة — متوسط الخطأ {formatSeconds(g.maeSeconds)}

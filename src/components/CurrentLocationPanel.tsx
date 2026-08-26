@@ -96,7 +96,7 @@ export const CurrentLocationPanel: React.FC<CurrentLocationPanelProps> = ({ user
             <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
             <span>{scope.type === 'bus' && scope.label ? scope.label : `حافلة ${loc.busId.slice(0, 8)}…`}</span>
           </div>
-          <div className="font-mono text-[11px] text-slate-600">
+          <div className="font-mono text-xs text-slate-600">
             {loc.latitude.toFixed(5)}, {loc.longitude.toFixed(5)}
           </div>
           <div className="flex items-center gap-1 text-slate-600">
@@ -116,7 +116,7 @@ export const CurrentLocationPanel: React.FC<CurrentLocationPanelProps> = ({ user
             <span>{new Date(loc.receivedAt).toLocaleTimeString('ar-OM', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
           </div>
           <span
-            className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+            className={`px-2 py-0.5 rounded-full text-xs font-bold border ${
               loc.freshness === 'FRESH' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-amber-100 text-amber-800 border-amber-300'
             }`}
           >

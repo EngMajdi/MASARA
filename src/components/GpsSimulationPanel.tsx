@@ -177,21 +177,21 @@ export const GpsSimulationPanel: React.FC<GpsSimulationPanelProps> = ({ trips, u
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-center">
             <div className="bg-slate-50 rounded-xl p-3">
-              <div className="text-[10px] font-bold text-slate-500 flex items-center justify-center gap-1">
+              <div className="text-xs font-bold text-slate-500 flex items-center justify-center gap-1">
                 <MapPin className="w-3 h-3" /> الموقع
               </div>
-              <div className="font-mono text-[11px] font-black text-slate-900">
+              <div className="font-mono text-xs font-black text-slate-900">
                 {session.currentLat.toFixed(5)}, {session.currentLng.toFixed(5)}
               </div>
             </div>
             <div className="bg-slate-50 rounded-xl p-3">
-              <div className="text-[10px] font-bold text-slate-500 flex items-center justify-center gap-1">
+              <div className="text-xs font-bold text-slate-500 flex items-center justify-center gap-1">
                 <Gauge className="w-3 h-3" /> السرعة
               </div>
               <div className="font-black text-slate-900">{session.lastObservation?.speed ?? 0} كم/س</div>
             </div>
             <div className="bg-slate-50 rounded-xl p-3">
-              <div className="text-[10px] font-bold text-slate-500 flex items-center justify-center gap-1">
+              <div className="text-xs font-bold text-slate-500 flex items-center justify-center gap-1">
                 <Compass className="w-3 h-3" /> الاتجاه
               </div>
               <div className="font-black text-slate-900">
@@ -199,7 +199,7 @@ export const GpsSimulationPanel: React.FC<GpsSimulationPanelProps> = ({ trips, u
               </div>
             </div>
             <div className="bg-slate-50 rounded-xl p-3">
-              <div className="text-[10px] font-bold text-slate-500 flex items-center justify-center gap-1">
+              <div className="text-xs font-bold text-slate-500 flex items-center justify-center gap-1">
                 <Clock className="w-3 h-3" /> الوقت المحاكى
               </div>
               <div className="font-black text-slate-900">
@@ -207,7 +207,7 @@ export const GpsSimulationPanel: React.FC<GpsSimulationPanelProps> = ({ trips, u
               </div>
             </div>
             <div className="bg-slate-50 rounded-xl p-3 col-span-2 sm:col-span-2">
-              <div className="text-[10px] font-bold text-slate-500">عدد الرصدات (Observations)</div>
+              <div className="text-xs font-bold text-slate-500">عدد الرصدات (Observations)</div>
               <div className="font-black text-slate-900">{session.sequence}</div>
             </div>
           </div>
