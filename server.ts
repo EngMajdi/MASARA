@@ -18,6 +18,7 @@ import { etaRouter } from './server/routes/etaRoutes';
 import { safetyFindingRouter } from './server/routes/safetyFindingRoutes';
 import { parentRouter } from './server/routes/parentRoutes';
 import { contactRouter } from './server/routes/contactRoutes';
+import { fleetRouter } from './server/routes/fleetRoutes';
 import { hashPassword, verifyPassword, generateTemporaryPassword } from './server/services/legacyAuthCredentials';
 import { db } from './database/client';
 import { schools as schoolsTable } from './database/schema';
@@ -38,6 +39,11 @@ import { validatePasswordPolicy } from './server/services/passwordPolicy';
 import { legacyUserRepository } from './server/repositories/legacyUserRepository';
 import { legacyBusRepository, type LegacyBusView } from './server/repositories/legacyBusRepository';
 import { legacyStudentRepository, type LegacyStudentView } from './server/repositories/legacyStudentRepository';
+import { provisionParentAccount, provisionEmployeeAccount, reconcileMissingGovernedUsers, reconcileMissingLegacyLogins } from './server/services/ProvisioningService';
+import { userRepository } from './server/repositories/userRepository';
+import { driverRepository } from './server/repositories/driverRepository';
+import { studentRepository } from './server/repositories/studentRepository';
+import { busRepository } from './server/repositories/busRepository';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -89,6 +95,8 @@ app.use(safetyFindingRouter);
 app.use(parentRouter);
 // Phase 6A: Identity & Contact Foundation — likewise additive, self-service only.
 app.use(contactRouter);
+// Phase 15: minimum live fleet provisioning (governed buses/routes/stops/trips) — likewise additive.
+app.use(fleetRouter);
 
 // In-memory application state
 let schools = [...INITIAL_SCHOOLS];
@@ -283,8 +291,18 @@ app.post('/api/auth/logout', (req, res) => {
 // Authentication Register Endpoint. Phase 7H — password policy enforced
 // before hashing/persistence: an invalid password never partially creates
 // a user (this check runs before the existing-email check and before any
-// legacyUserRepository.create call), returns a sanitized client error,
-// and the rejected password itself is never logged or stored.
+// provisioning call), returns a sanitized client error, and the rejected
+// password itself is never logged or stored.
+//
+// Phase 14 — SECURITY-NEUTRAL PROVISIONING FIX: this used to create only a
+// legacy_users row, leaving every governed API (Parent Live Journey
+// included) permanently unreachable for a real self-registered parent —
+// found live during Phase 13.1's own adversarial verification (see
+// docs/PHASE_13_STUDENT_IDENTITY_AND_PARENT_LIVE_JOURNEY_REPORT.md §25).
+// Now delegates to ProvisioningService.provisionParentAccount, which
+// creates the legacy AND governed rows in one real database transaction
+// (both tables live in the same SQLite file) — no new auth system, no
+// change to the role hardcode below, no change to session issuance.
 app.post('/api/auth/register', (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) {
@@ -296,26 +314,20 @@ app.post('/api/auth/register', (req, res) => {
     return res.status(400).json({ success: false, error: policyCheck.error });
   }
 
-  const existing = legacyUserRepository.findByEmail(email);
-  if (existing) {
+  // SECURITY FIX (unchanged since Phase 7H/11): self-registration is always
+  // 'parent' — staff roles (driver/school/admin) are never client-selectable
+  // at signup. The previous logic here trusted a role claimed by the caller
+  // outright whenever the request supplied one, letting anyone with no
+  // prior credentials create a brand-new elevated-role account with zero
+  // verification (live-verified). Staff accounts exist only via
+  // /api/admin/employees (below); there is no legitimate self-service path
+  // to them in this codebase.
+  const result = provisionParentAccount({ name, email, password });
+  if (result.status === 'ALREADY_REGISTERED') {
     return res.status(400).json({ success: false, error: 'هذا البريد الإلكتروني مسجل بالفعل' });
   }
 
-  // SECURITY FIX: self-registration is always 'parent' — staff roles
-  // (driver/school/admin) are never client-selectable at signup. The
-  // previous logic here trusted a role claimed by the caller outright
-  // whenever the request supplied one, letting anyone with no prior
-  // credentials create a brand-new elevated-role account with zero
-  // verification (live-verified). Staff accounts exist only via the fixed
-  // seed data; there is no legitimate self-service path to them in this
-  // codebase.
-  const newUser = legacyUserRepository.create({
-    name,
-    email: email.trim(),
-    passwordHash: hashPassword(password),
-    role: 'parent'
-  });
-
+  const { legacyUser: newUser } = result;
   const session = createSession({ id: newUser.id, email: newUser.email, role: newUser.role });
 
   res.json({
@@ -411,42 +423,51 @@ const EMPLOYEE_ROLES = ['driver', 'school', 'admin'] as const;
 // Create a new employee account. Never 'parent' — parents are self-service
 // only (POST /api/auth/register), a deliberate Phase 8A security fix this
 // route must not reopen.
+//
+// Phase 14 — now provisions the governed counterpart (and, for role
+// 'driver', the governed `drivers` row) in the same real transaction as
+// the legacy row, via ProvisioningService.provisionEmployeeAccount. Before
+// this, an employee created here could log in (legacy session) but every
+// governed API 404'd them — exactly the driver2/driver3 gap Phase 13.1
+// found live, now closed at the source for every future hire (not
+// special-cased to those two accounts).
 app.post('/api/admin/employees', (req, res) => {
   const guard = requireLegacyRole(req.headers.authorization, LEGACY_EMPLOYEE_MANAGEMENT_ROLES);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
 
-  const { name, email, role } = req.body;
+  const { name, email, role, phone } = req.body;
   if (typeof name !== 'string' || !name.trim() || typeof email !== 'string' || !email.trim()) {
     return res.status(400).json({ success: false, error: 'يرجى تقديم الاسم والبريد الإلكتروني.' });
   }
   if (typeof role !== 'string' || !(EMPLOYEE_ROLES as readonly string[]).includes(role)) {
     return res.status(400).json({ success: false, error: 'الدور يجب أن يكون سائق أو مدرسة أو مشرف عام.' });
   }
+  if (phone !== undefined && typeof phone !== 'string') {
+    return res.status(400).json({ success: false, error: 'رقم الهاتف غير صالح.' });
+  }
 
-  const existing = legacyUserRepository.findByEmail(email);
-  if (existing) {
+  const existingLegacy = legacyUserRepository.findByEmail(email);
+  const existingGoverned = userRepository.findByEmail(email);
+  if (existingLegacy || existingGoverned) {
     return res.status(400).json({ success: false, error: 'هذا البريد الإلكتروني مسجل بالفعل' });
   }
 
-  const temporaryPassword = generateTemporaryPassword();
-  const newEmployee = legacyUserRepository.create({
+  const provisioned = provisionEmployeeAccount({
     name: name.trim(),
     email: email.trim(),
-    passwordHash: hashPassword(temporaryPassword),
-    role,
-    status: 'active',
-    mustChangePassword: true,
+    role: role as 'driver' | 'school' | 'admin',
+    phone,
     createdByUserId: guard.user.id,
   });
 
   res.json({
     success: true,
-    employee: toEmployeeView(legacyUserRepository.findById(newEmployee.id)!),
+    employee: toEmployeeView(legacyUserRepository.findById(provisioned.legacyUser.id)!),
     // Shown exactly once — never persisted in plaintext, never returned
     // by any other endpoint. The admin is responsible for relaying it to
     // the employee out-of-band (in person, phone) — no email provider is
     // configured in this deployment.
-    temporaryPassword,
+    temporaryPassword: provisioned.temporaryPassword,
   });
 });
 
@@ -557,6 +578,126 @@ app.post('/api/admin/employees/:id/revoke-sessions', (req, res) => {
   res.json({ success: true });
 });
 
+// ---------------------------------------------------------------------------
+// Phase 14 — Provisioning reconciliation & data-integrity audit. Admin-only
+// (same sensitivity class as employee management). Nothing here runs
+// automatically — an admin must explicitly trigger it, and every repair is
+// deterministic (email-matched, never a name/phone guess — spec §11/§14).
+// ---------------------------------------------------------------------------
+
+// Repairs the two known one-sided-account classes: a real legacy account
+// with no governed counterpart (the pre-Phase-14 registration/employee gap),
+// and a real governed account with no legacy login (the driver2/driver3
+// class of gap). Read-then-write, idempotent — safe to call repeatedly.
+app.post('/api/admin/provisioning/reconcile', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_EMPLOYEE_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
+  const governedSide = reconcileMissingGovernedUsers();
+  const legacySide = reconcileMissingLegacyLogins();
+  res.json({ success: true, ...governedSide, ...legacySide });
+});
+
+// Read-only data-integrity audit (spec §53) — reports ambiguous/incomplete
+// records, never silently "fixes" them. Every category here is a genuine
+// structural gap this endpoint can detect deterministically (an email
+// present on only one side, a student/driver missing a required link) —
+// nothing here is inferred from a name.
+app.get('/api/admin/provisioning/audit', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_EMPLOYEE_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
+  const allLegacyUsers = legacyUserRepository.findAll();
+  const allGovernedUsers = userRepository.findAll();
+  const governedEmails = new Set(allGovernedUsers.map((u) => u.email));
+  const legacyEmails = new Set(allLegacyUsers.map((u) => u.email.toLowerCase().trim()));
+
+  const usersOnlyInLegacy = allLegacyUsers.filter((u) => !governedEmails.has(u.email.toLowerCase().trim())).map((u) => ({ email: u.email, role: u.role }));
+  const usersOnlyInGoverned = allGovernedUsers.filter((u) => !legacyEmails.has(u.email)).map((u) => ({ email: u.email, role: u.role }));
+
+  const allDrivers = driverRepository.findAll();
+  const driversWithoutLogin = allDrivers
+    .map((d) => ({ driverId: d.id, user: allGovernedUsers.find((u) => u.id === d.userId) }))
+    .filter((d) => d.user && !legacyEmails.has(d.user.email))
+    .map((d) => ({ driverId: d.driverId, email: d.user!.email }));
+  const allBuses = busRepository.findAll();
+  const driversWithoutBus = allDrivers.filter((d) => !allBuses.some((b) => b.driverId === d.id)).map((d) => ({ driverId: d.id, name: d.name }));
+
+  const allGovernedStudents = studentRepository.findAll();
+  const studentsWithoutStableBridge = allGovernedStudents.filter((s) => !s.legacyStudentId).map((s) => ({ studentId: s.id, name: s.name }));
+  const studentsWithoutBus = allGovernedStudents.filter((s) => !s.busId).map((s) => ({ studentId: s.id, name: s.name }));
+
+  const allLegacyStudents = legacyStudentRepository.findAll();
+  const legacyStudentsWithoutParent = allLegacyStudents.filter((s) => !s.parentId).map((s) => ({ studentId: s.id, name: s.name }));
+
+  const emailCounts = new Map<string, number>();
+  for (const u of allLegacyUsers) emailCounts.set(u.email.toLowerCase().trim(), (emailCounts.get(u.email.toLowerCase().trim()) ?? 0) + 1);
+  const duplicateLegacyEmails = [...emailCounts.entries()].filter(([, count]) => count > 1).map(([email]) => email);
+
+  res.json({
+    usersOnlyInLegacy,
+    usersOnlyInGoverned,
+    driversWithoutLogin,
+    driversWithoutBus,
+    studentsWithoutStableBridge,
+    studentsWithoutBus,
+    legacyStudentsWithoutParent,
+    duplicateLegacyEmails,
+  });
+});
+
+// Links an existing legacy student (already parent-assigned via
+// /api/students/:id/assign-parent) to a real governed student record on a
+// real, existing governed bus — the missing step that makes a household
+// eligible for Parent Live Journey (spec §12/§13). Idempotent: calling
+// this twice for the same legacy student never creates a second governed
+// row (students_legacy_student_unique, database/schema.ts) — it returns
+// the existing one. Never infers the bus/route/trip from anything besides
+// the busId the caller explicitly supplies; never touches parentId (that
+// stays legacy_students.parentId, the real source of truth — spec §6 of
+// the Phase 13 report).
+app.post('/api/students/:id/provision-governed', (req, res) => {
+  const guard = requireLegacyRole(req.headers.authorization, LEGACY_DATA_MANAGEMENT_ROLES);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
+  const { id } = req.params;
+  const legacyStudent = legacyStudentRepository.findById(id);
+  if (!legacyStudent) return res.status(404).json({ success: false, error: 'الطالب غير موجود.' });
+  if (!legacyStudent.parentId) {
+    return res.status(400).json({ success: false, error: 'يجب ربط الطالب بولي أمر أولاً قبل تفعيل التتبع المباشر.' });
+  }
+
+  const existingGovernedStudent = studentRepository.findByLegacyStudentId(id);
+  if (existingGovernedStudent) {
+    return res.json({ success: true, student: existingGovernedStudent, alreadyProvisioned: true });
+  }
+
+  const { busId } = req.body;
+  if (typeof busId !== 'string' || !busId) {
+    return res.status(400).json({ success: false, error: 'يرجى تحديد الحافلة الحقيقية (النظام المحوكم) لهذا الطالب.' });
+  }
+  const governedBus = busRepository.findById(busId);
+  if (!governedBus) {
+    return res.status(400).json({ success: false, error: 'الحافلة المحددة غير موجودة في النظام المحوكم.' });
+  }
+
+  const governedStudent = studentRepository.create({
+    schoolId: governedBus.schoolId,
+    name: legacyStudent.name,
+    grade: legacyStudent.grade,
+    busId: governedBus.id,
+    pickupLat: legacyStudent.pickupPoint.lat,
+    pickupLng: legacyStudent.pickupPoint.lng,
+    pickupAddress: legacyStudent.pickupPoint.address,
+    seatNumber: legacyStudent.seatNumber,
+    parentName: legacyStudent.parentName,
+    parentPhone: legacyStudent.parentPhone,
+    legacyStudentId: id,
+  });
+
+  res.json({ success: true, student: governedStudent, alreadyProvisioned: false });
+});
+
 // Resource ownership assignment — the gap Phase 7K deliberately left open
 // ("no assignment mechanism exists"). LEGACY_DATA_MANAGEMENT_ROLES
 // (admin/school), not LEGACY_EMPLOYEE_MANAGEMENT_ROLES: this is an
@@ -572,6 +713,7 @@ app.patch('/api/buses/:id/assign-driver', (req, res) => {
   const bus = legacyBusRepository.findById(id);
   if (!bus) return res.status(404).json({ success: false, error: 'الحافلة غير موجودة.' });
 
+  let driverName: string | undefined;
   if (driverId !== null) {
     if (typeof driverId !== 'string' || !driverId) {
       return res.status(400).json({ success: false, error: 'معرّف السائق غير صالح.' });
@@ -580,9 +722,11 @@ app.patch('/api/buses/:id/assign-driver', (req, res) => {
     if (!driver || driver.role !== 'driver' || driver.status !== 'active') {
       return res.status(400).json({ success: false, error: 'يجب أن يشير معرّف السائق إلى حساب سائق نشط وحقيقي.' });
     }
+    // Phase 10 UAT — keep the displayed driver name in sync with the account this actually links to (see repository comment).
+    driverName = driver.name;
   }
 
-  const updated = legacyBusRepository.updateDriverId(id, driverId);
+  const updated = legacyBusRepository.updateDriverId(id, driverId, driverName);
   res.json({ success: true, bus: updated });
 });
 
@@ -1249,8 +1393,8 @@ function generateLocalAdvisorAnswer(
       result += `🪑 **رقم المقعد المخصص:** ${std.seatNumber} | 📌 **نقطة الركوب:** ${std.pickupPoint?.nameAr || 'نقطة الحي'}\n`;
       result += `📊 **حالة الحضور:** ${statusText}\n`;
       result += `🚌 **الحافلة المخصصة:** ${std.busNumber} (${bus?.plateNumber || ''})\n`;
-      result += `👤 **سائق الحافلة:** ${bus?.driverName || 'الكابتن سعيد البوسعيدي'}\n`;
-      result += `📞 **هاتف السائق للتواصل المباشر:** ${bus?.driverPhone || '+968 9123 4567'}\n`;
+      result += `👤 **سائق الحافلة:** ${bus?.driverName || 'غير معروف'}\n`;
+      result += `📞 **هاتف السائق للتواصل المباشر:** ${bus?.driverPhone || 'غير متوفر'}\n`;
       if (bus) {
         result += `📍 **المحطة القادمة للحافلة:** "${bus.nextStopName}" (سرعة الحافلة: ${bus.speedKmH} كم/س)\n`;
         result += `⏱️ **الوقت المتبقي المحدد للوصول (ETA):** ${bus.nextStopEtaMins} دقائق\n`;
@@ -1282,7 +1426,7 @@ function generateLocalAdvisorAnswer(
     else if (q.includes('102')) targetBuses = busesData.filter((b) => b.busNumber.includes('102'));
     else if (q.includes('103')) targetBuses = busesData.filter((b) => b.busNumber.includes('103'));
 
-    let result = `🚌 **تقرير الملاحة المباشرة والوقت المحدد للوصول (GPS & ETA Radar):**\n\n`;
+    let result = `🚌 **تقرير حالة الحافلات المسجّلة في النظام:**\n\n`;
     targetBuses.forEach((b) => {
       result += `🚏 **${b.busNumber}** (رقم اللوحة: ${b.plateNumber})\n`;
       result += `👤 **السائق المسؤول:** ${b.driverName}\n`;
@@ -1318,11 +1462,11 @@ function generateLocalAdvisorAnswer(
   // 4. Default rich overview
   return `أهلاً بك في **مساعد مَسارَا الذكي (MASARA AI Assistant)** 🚌✨
 
-أنا متصل مباشرة بقاعدة بيانات الأسطول والتتبع المباشر بمسقط. إليك ملخص البيانات اللحظية:
+إليك آخر البيانات المسجّلة في نظام مَسارَا:
 
-📍 **تحديثات أسطول الحافلات المباشرة:**
-• **حافلة 101:** بقيادة ${busesData[0]?.driverName || 'الكابتن سعيد البوسعيدي'} (📞 ${busesData[0]?.driverPhone}) | تتجه إلى "${busesData[0]?.nextStopName}" | الوصول خلال: **${busesData[0]?.nextStopEtaMins} دقائق**
-• **حافلة 102:** بقيادة ${busesData[1]?.driverName || 'الكابتن سالم المعمري'} (📞 ${busesData[1]?.driverPhone}) | تتجه إلى "${busesData[1]?.nextStopName}" | الوصول خلال: **${busesData[1]?.nextStopEtaMins} دقائق**
+📍 **حالة أسطول الحافلات المسجّلة:**
+• **حافلة 101:** بقيادة ${busesData[0]?.driverName || 'غير معروف'} (📞 ${busesData[0]?.driverPhone || 'غير متوفر'}) | تتجه إلى "${busesData[0]?.nextStopName}" | الوصول خلال: **${busesData[0]?.nextStopEtaMins} دقائق**
+• **حافلة 102:** بقيادة ${busesData[1]?.driverName || 'غير معروف'} (📞 ${busesData[1]?.driverPhone || 'غير متوفر'}) | تتجه إلى "${busesData[1]?.nextStopName}" | الوصول خلال: **${busesData[1]?.nextStopEtaMins} دقائق**
 
 👦 **حالة صعود وحضور الطلاب اليوم:**
 • إجمالي الطلاب المسجلين: ${studentsData.length} طلاب
@@ -1349,19 +1493,26 @@ app.post('/api/ai/ask-advisor', async (req, res) => {
     const schoolsData = currentSchools && Array.isArray(currentSchools) && currentSchools.length > 0 ? currentSchools : schools;
     const routesData = currentRoutes && Array.isArray(currentRoutes) && currentRoutes.length > 0 ? currentRoutes : routes;
 
+    // Phase 15 — data-honesty fix: this context is the current snapshot of
+    // the legacy operational store (last-recorded status, not a continuous
+    // GPS feed — see legacyBusRepository/legacyStudentRepository). The
+    // wording below deliberately no longer claims "LIVE"/"حية" for it; the
+    // one place that label is honestly earned (governed
+    // CurrentLocationProjectionService's real freshness check) is a
+    // separate pipeline this chat feature does not read from.
     const liveContext = `
-بيانات منصة مَسارَا الحية الحالية (LIVE DATABASE CONTEXT):
+بيانات النظام المسجّلة حالياً (CURRENT RECORDED DATA):
 
-1. قائمة الحافلات وسائقيها ومواقعها وأوقات الوصول المتوقعة (LIVE BUSES):
+1. قائمة الحافلات وسائقيها وآخر موقع مسجّل ووقت الوصول المتوقع (BUSES):
 ${JSON.stringify(busesData, null, 2)}
 
-2. قائمة الطلاب وحالة حضورهم ومقاعدهم وأولياء أمورهم (LIVE STUDENTS):
+2. قائمة الطلاب وحالة حضورهم ومقاعدهم وأولياء أمورهم (STUDENTS):
 ${JSON.stringify(studentsData, null, 2)}
 
-3. قائمة المدارس المسجلة (LIVE SCHOOLS):
+3. قائمة المدارس المسجلة (SCHOOLS):
 ${JSON.stringify(schoolsData, null, 2)}
 
-4. المسارات الحية (LIVE ROUTES):
+4. المسارات المسجّلة (ROUTES):
 ${JSON.stringify(routesData, null, 2)}
 `;
 
@@ -1373,7 +1524,7 @@ ${JSON.stringify(routesData, null, 2)}
 ${liveContext}
 
 تعليمات هامة جداً للإجابة:
-1. أنت متصل مباشرة بقاعدة البيانات الحية المعروضة أعلاه ولديك معلومات كاملة ودقيقة عن كل طالب، كل حافلة، كل سائق، كل موقع GPS، وكل وقت وصول متوقع (ETA).
+1. لديك البيانات المسجّلة أعلاه عن كل طالب، كل حافلة، كل سائق، وآخر موقع ووقت وصول متوقع (ETA) مسجّل في النظام — وهي آخر بيانات مسجّلة، وليست بالضرورة تحديثاً لحظياً من نظام تتبع GPS مباشر؛ لا تصف هذه البيانات بأنها "مباشرة" أو "لحظية".
 2. إذا سأل المستخدم عن "أين الباص؟"، أو "متى يصل؟"، أو "الوقت المحدد للوصول؟"، ابحث في قائمة الحافلات أعلاه واذكر رقم الحافلة، اسم السائق، رقم جواله، سرعة الحافلة، المحطة القادمة، والوقت المحدد للوصول بالدقائق (ETA).
 3. إذا سأل ولي الأمر عن ابنه/ابنته أو طالب معين (مثل مريم، الخليل، سالم، ريم، الخ)، ابحث عن اسم الطالب واذكر فوراً: اسم الطالب الكامل، الصف، المدرسة، حالة الحضور (تم الصعود ✅ / ينتظر ⏳ / غائب ❌)، رقم المقعد، رقم الحافلة، اسم السائق ورقم جواله، والوقت المتوقع لوصول الحافلة لموقعه.
 4. إذا سأل عن أرقام هواتف السائقين أو التواصل مع إدارة المدرسة، أعطه أرقام الهواتف وأسماء الكباتن المباشرة من البيانات.

@@ -14,10 +14,17 @@ import {
   SimulationStateError,
   type ScenarioId,
 } from '../services/SimulationEngine';
-import { requireOperationalUser } from '../services/authz';
+import { requireOperationalUser, requireVerifiedEmail } from '../services/authz';
 
 // Simulation controls are operational-only (spec §16/§43) — a parent must
 // never start a simulation, a driver gets none of these controls either.
+//
+// Phase 11 SECURITY FIX — identity now comes from a verified session token
+// (`requireVerifiedEmail`), never a client-supplied `userEmail` query/body
+// field. The three GET routes below previously had NO guard at all (found
+// during the Phase 11 route inventory) — they now require the same
+// operational session every other route in this file already required for
+// its mutations, closing that gap too.
 export const simulationRouter = Router();
 
 const VALID_SCENARIOS = new Set<ScenarioId>(['TRAFFIC_DELAY', 'MINOR_DELAY', 'NORMAL_TRIP', 'SAFETY_INCIDENT']);
@@ -30,12 +37,18 @@ function handleSimulationError(err: unknown, res: Response) {
   return res.status(500).json({ error: 'حدث خطأ غير متوقع في محرك المحاكاة.' });
 }
 
-simulationRouter.get('/api/simulation', (_req, res) => {
+simulationRouter.get('/api/simulation', (req, res) => {
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json(listSessions());
 });
 
 simulationRouter.post('/api/simulation/start', (req, res) => {
-  const guard = requireOperationalUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
 
   const { scenario, tripId } = req.body ?? {};
@@ -52,7 +65,9 @@ simulationRouter.post('/api/simulation/start', (req, res) => {
 });
 
 simulationRouter.post('/api/simulation/reset', (req, res) => {
-  const guard = requireOperationalUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
 
   // In-memory bookkeeping only — never touches audit_logs or any persisted
@@ -62,6 +77,10 @@ simulationRouter.post('/api/simulation/reset', (req, res) => {
 });
 
 simulationRouter.get('/api/simulation/:id', (req, res) => {
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     res.json(getSession(req.params.id));
   } catch (err) {
@@ -70,6 +89,10 @@ simulationRouter.get('/api/simulation/:id', (req, res) => {
 });
 
 simulationRouter.get('/api/simulation/:id/events', (req, res) => {
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     res.json(listSessionEvents(req.params.id));
   } catch (err) {
@@ -78,7 +101,9 @@ simulationRouter.get('/api/simulation/:id/events', (req, res) => {
 });
 
 simulationRouter.post('/api/simulation/:id/advance', async (req, res) => {
-  const guard = requireOperationalUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
 
   try {
@@ -90,7 +115,9 @@ simulationRouter.post('/api/simulation/:id/advance', async (req, res) => {
 });
 
 simulationRouter.post('/api/simulation/:id/pause', (req, res) => {
-  const guard = requireOperationalUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
 
   try {
@@ -101,7 +128,9 @@ simulationRouter.post('/api/simulation/:id/pause', (req, res) => {
 });
 
 simulationRouter.post('/api/simulation/:id/resume', (req, res) => {
-  const guard = requireOperationalUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
 
   try {
@@ -112,7 +141,9 @@ simulationRouter.post('/api/simulation/:id/resume', (req, res) => {
 });
 
 simulationRouter.post('/api/simulation/:id/cancel', (req, res) => {
-  const guard = requireOperationalUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
 
   try {

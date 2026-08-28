@@ -5,9 +5,43 @@ import { telemetryDeviceRepository } from '../repositories/telemetryDeviceReposi
 import { OPERATIONAL_ROLES, JOURNEY_READ_ROLES } from '../domain/roles';
 import type { JourneyActor } from './JourneyService';
 import { parseDeviceBearerToken, verifyDeviceSecret } from './deviceCredentials';
+import { requireLegacySession } from './legacyAuthz';
 
 export type GovernedUser = NonNullable<ReturnType<typeof userRepository.findById>>;
 export type AuthzGuard = { ok: true; user: GovernedUser } | { ok: false; status: number; error: string };
+
+export type VerifiedEmailResult = { ok: true; email: string } | { ok: false; status: number; error: string };
+
+/**
+ * Phase 11 — CRITICAL SECURITY FIX. Every guard below this point historically
+ * took a caller-supplied `email` string (from `req.query.userEmail` /
+ * `req.body.userEmail`) and trusted it completely as the caller's identity —
+ * a full authentication bypass confirmed live in the Phase 10 UAT
+ * (`fetch('/api/parent/journeys?userEmail=parent@masara.om')` with ZERO
+ * credentials returned that parent's real children's live GPS location).
+ *
+ * This is the ONE place that gap closes. Every governed route must call this
+ * FIRST, with `req.headers.authorization`, and pass its verified `.email` —
+ * never a client-supplied field — into the guard functions below. Those
+ * guard functions themselves are UNCHANGED (same signature, same tests,
+ * same role/ownership logic) — only the source of the `email` they receive
+ * is now server-verified instead of client-claimed.
+ *
+ * Deliberately reuses the EXISTING legacy session mechanism
+ * (`requireLegacySession` / `legacySessionService.ts`, Phase 7A/7G/7H —
+ * persisted, expiring, revocable, already the sole real authentication
+ * source in this application) rather than inventing a second auth system,
+ * per this phase's own explicit "ONE AUTHENTICATION SOURCE" mandate. The
+ * governed `users` table and the legacy `legacy_users` table are joined by
+ * email (see this file's pre-existing header comment) — a session's own
+ * `email`, once cryptographically verified via its token, is exactly the
+ * join key every guard below already expected, just no longer a claim.
+ */
+export function requireVerifiedEmail(authorizationHeader: unknown): VerifiedEmailResult {
+  const session = requireLegacySession(authorizationHeader);
+  if (session.ok === false) return session;
+  return { ok: true, email: session.user.email };
+}
 
 // The client's session identity comes from the legacy login system
 // (server.ts's in-memory `users`); the governance layer's Drizzle `users`

@@ -6,7 +6,7 @@ import { Card, ErrorState } from './ui';
 import type { Tone } from './ui';
 
 interface NotificationsPanelProps {
-  userEmail: string;
+  sessionToken: string;
 }
 
 const POLL_MS = 10000;
@@ -47,13 +47,13 @@ const TONE_ICON_CLASSES: Record<Tone, string> = {
  * Parent portal's single "الإشعارات" section (see ParentPortal.tsx) so a
  * parent sees one feed rather than two competing notification lists.
  */
-export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ userEmail }) => {
+export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ sessionToken }) => {
   const [items, setItems] = useState<NotificationView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = () => {
-    getParentNotifications(userEmail)
+    getParentNotifications(sessionToken)
       .then((data) => {
         setItems(data);
         setError(null);
@@ -68,10 +68,10 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ userEmai
     const interval = setInterval(load, POLL_MS);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userEmail]);
+  }, [sessionToken]);
 
   const handleMarkRead = (id: string) => {
-    markNotificationRead(id, userEmail)
+    markNotificationRead(id, sessionToken)
       .then((updated) => setItems((prev) => (prev ? prev.map((n) => (n.id === updated.id ? updated : n)) : prev)))
       .catch(() => {
         /* silent — next poll re-syncs the true state */

@@ -8,14 +8,14 @@ import { Sheet, Alert } from './ui';
 interface JourneyDetailModalProps {
   journey: Journey;
   studentName: string;
-  userEmail: string;
+  sessionToken: string;
   onClose: () => void;
 }
 
 // Reusable Journey detail/timeline view (spec Phase 3B §17/§43) — used by
 // both the School Journey Operations Panel and the Driver Journey Console,
 // so the timeline is built exactly once, not duplicated per surface.
-export const JourneyDetailModal: React.FC<JourneyDetailModalProps> = ({ journey, studentName, userEmail, onClose }) => {
+export const JourneyDetailModal: React.FC<JourneyDetailModalProps> = ({ journey, studentName, sessionToken, onClose }) => {
   return (
     <Sheet isOpen onClose={onClose} title={studentName} subtitle="سجل رحلة الطالب الكامل">
       <div className="space-y-4">
@@ -33,7 +33,7 @@ export const JourneyDetailModal: React.FC<JourneyDetailModalProps> = ({ journey,
             <History className="w-4 h-4 text-primary" />
             <span>السجل الزمني للرحلة</span>
           </h4>
-          <JourneyTimeline journeyId={journey.id} userEmail={userEmail} />
+          <JourneyTimeline journeyId={journey.id} sessionToken={sessionToken} />
         </div>
       </div>
     </Sheet>

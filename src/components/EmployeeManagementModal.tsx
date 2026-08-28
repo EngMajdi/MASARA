@@ -36,9 +36,20 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<Employee['role']>('driver');
+  const [phone, setPhone] = useState('');
 
   const [revealedCredential, setRevealedCredential] = useState<{ email: string; password: string } | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Phase 14 — provisioning health state. Declared here, alongside every
+  // other hook, and unconditionally on every render — the `if (!isOpen)
+  // return null` below must never sit between hook declarations (a real
+  // "Rendered more hooks than during the previous render" crash, live-
+  // caught during this phase's own browser verification, happened when
+  // these were first added after that early return).
+  const [auditReport, setAuditReport] = useState<Record<string, unknown[]> | null>(null);
+  const [reconcileResult, setReconcileResult] = useState<string | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
 
   const headers = { 'Content-Type': 'application/json', ...legacyAuthHeaders(currentUser?.sessionToken) };
 
@@ -70,12 +81,13 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
       return;
     }
     try {
-      const res = await fetch('/api/admin/employees', { method: 'POST', headers, body: JSON.stringify({ name: name.trim(), email: email.trim(), role }) });
+      const res = await fetch('/api/admin/employees', { method: 'POST', headers, body: JSON.stringify({ name: name.trim(), email: email.trim(), role, phone: phone.trim() || undefined }) });
       const data = await res.json();
       if (data.success) {
         setRevealedCredential({ email: data.employee.email, password: data.temporaryPassword });
         setName('');
         setEmail('');
+        setPhone('');
         setShowForm(false);
         loadEmployees();
       } else {
@@ -134,6 +146,43 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
     });
   };
 
+  // Phase 14 — provisioning health. Read-only audit (never auto-fixes
+  // anything) plus a one-click, idempotent reconciliation for the two
+  // known one-sided-account gaps (a real account that exists on only one
+  // of the legacy/governed sides — see ProvisioningService.ts). Never runs
+  // automatically; an admin must explicitly request it.
+  const loadAudit = () => {
+    if (!currentUser?.sessionToken) return;
+    setAuditLoading(true);
+    fetch('/api/admin/provisioning/audit', { headers: legacyAuthHeaders(currentUser.sessionToken) })
+      .then((r) => r.json())
+      .then((data) => setAuditReport(data))
+      .catch(() => setError('تعذّر تحميل تقرير تكامل البيانات.'))
+      .finally(() => setAuditLoading(false));
+  };
+
+  const handleReconcile = async () => {
+    setError(null);
+    setReconcileResult(null);
+    try {
+      const res = await fetch('/api/admin/provisioning/reconcile', { method: 'POST', headers });
+      const data = await res.json();
+      if (data.success) {
+        const total = (data.governedUsersCreated?.length ?? 0) + (data.governedDriversCreated?.length ?? 0) + (data.legacyLoginsCreated?.length ?? 0);
+        setReconcileResult(total === 0 ? 'كل الحسابات متوافقة بالفعل — لا يوجد ما يحتاج إصلاحاً.' : `تم إصلاح ${total} حساباً. راجع أي كلمات مرور مؤقتة جديدة أدناه وسلّمها للموظف المعني شخصياً.`);
+        if (data.legacyLoginsCreated?.length) {
+          setRevealedCredential({ email: data.legacyLoginsCreated[0].email, password: data.legacyLoginsCreated[0].temporaryPassword });
+        }
+        loadEmployees();
+        loadAudit();
+      } else {
+        setError(data.error || 'تعذّر تنفيذ عملية المطابقة.');
+      }
+    } catch {
+      setError('حدث خطأ في الاتصال بالخادم.');
+    }
+  };
+
   return (
     <Sheet isOpen={isOpen} onClose={onClose} title="إدارة الموظفين" subtitle="حسابات السائقين وموظفي المدرسة">
       <div className="space-y-4">
@@ -182,6 +231,11 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
                     <option value="admin">مشرف عام</option>
                   </Select>
                 </Field>
+                {role === 'driver' && (
+                  <Field label="رقم جوال السائق" className="sm:col-span-2">
+                    <Input dir="ltr" value={phone} onChange={(e) => setPhone(e.target.value)} className="text-right" />
+                  </Field>
+                )}
               </div>
             </FormSection>
             <div className="flex gap-2">
@@ -233,6 +287,32 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
                   </Card>
                 );
               })}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-border-default pt-4">
+          <h3 className="text-sm font-bold text-text-primary mb-2">تكامل الحسابات (النظام المحوكم مقابل النظام القديم)</h3>
+          <p className="text-xs text-text-secondary mb-2">
+            فحص وإصلاح الحسابات التي تكون موجودة في أحد النظامين فقط — لا يتم تشغيل هذا تلقائياً أبداً، ولا يتم تخمين أي علاقة بالاسم.
+          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button size="sm" variant="secondary" onClick={loadAudit} disabled={auditLoading}>
+              {auditLoading ? 'جارٍ الفحص...' : 'فحص التكامل'}
+            </Button>
+            <Button size="sm" variant="secondary" onClick={handleReconcile}>
+              تشغيل المطابقة والإصلاح
+            </Button>
+          </div>
+          {reconcileResult && <p className="text-xs text-emerald-700 font-bold mt-2">{reconcileResult}</p>}
+          {auditReport && (
+            <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+              {Object.entries(auditReport).map(([key, value]) => (
+                <div key={key} className="bg-surface-sunken border border-border-default rounded-lg px-2 py-1.5">
+                  <div className="text-text-tertiary">{key}</div>
+                  <div className="font-bold text-text-primary">{Array.isArray(value) ? value.length : String(value)}</div>
+                </div>
+              ))}
             </div>
           )}
         </div>

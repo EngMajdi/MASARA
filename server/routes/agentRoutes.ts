@@ -18,11 +18,23 @@ import { tripRepository } from '../repositories/tripRepository';
 import { busRepository } from '../repositories/busRepository';
 import { routeRepository } from '../repositories/routeRepository';
 import { predictionRepository } from '../repositories/predictionRepository';
-import { requireOperationalUser, requireJourneyReader } from '../services/authz';
+import { userRepository } from '../repositories/userRepository';
+import { requireOperationalUser, requireJourneyReader, requireVerifiedEmail } from '../services/authz';
+import { isRouteAuthorizedForParent } from '../services/ParentAccessService';
 
 // Additive governance API — new endpoints only, none of the existing routes in
 // server.ts are touched here. This is the Approval Center's backend:
 // AI -> Recommendation -> Policy -> Human Approval -> ActionExecutor -> Verify -> Audit
+//
+// Phase 11 SECURITY FIX (CRITICAL) — every route below used to resolve
+// identity from a client-supplied `userEmail` query/body field, with no
+// verification the caller actually held a session for that email. This
+// included the approve/reject/request-review actions this whole governance
+// model's "human review" gate depends on — the Phase 10 UAT confirmed this
+// meant an unauthenticated caller who merely knew/guessed an admin/school
+// email could remotely approve or reject a real AI-driven operational
+// recommendation. Identity now comes from a real, verified session token
+// (`requireVerifiedEmail`) on every single route in this file, no exceptions.
 export const agentRouter = Router();
 
 /** Maps ActionExecutor's typed errors to the right HTTP status — no raw stack traces ever reach the client. */
@@ -36,15 +48,10 @@ function handleExecutorError(err: unknown, res: import('express').Response) {
   return res.status(500).json({ error: 'حدث خطأ غير متوقع أثناء معالجة الطلب.' });
 }
 
-// Phase 7C — production-readiness audit: this route had no authorization at
-// all (any unauthenticated caller could trigger a governed agent run for any
-// trip). Reuses the exact same requireOperationalUser guard every other
-// admin/school-only route in this file already uses — no new mechanism.
-// No existing test or frontend caller was found exercising this route over
-// HTTP (all existing tests call runForTrip directly), so this is a pure
-// hardening addition with zero blast radius on existing behavior.
 agentRouter.post('/api/agent/run', async (req, res) => {
-  const guard = requireOperationalUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
 
   try {
@@ -58,18 +65,12 @@ agentRouter.post('/api/agent/run', async (req, res) => {
   }
 });
 
-// Phase 7A — production-readiness audit: these GET reads exposed
-// AI-governance data (recommendations, their audit trail, verification
-// results) with no authorization at all. Governance/audit information is
-// admin/school-only (spec Step 3: "do not expose internal governance/
-// audit information to parent/driver/device unless the existing
-// architecture explicitly permits it" — it never has), reusing the exact
-// guard the mutation routes just below already use.
-//
 // GET /api/recommendations?status=pending — read-only, supports the
 // Approval Center's tabs (Pending/Approved/Rejected/Executed/...).
 agentRouter.get('/api/recommendations', (req, res) => {
-  const guard = requireOperationalUser(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const status = typeof req.query.status === 'string' ? req.query.status : undefined;
   const all = recommendationRepository.findAll();
@@ -77,7 +78,9 @@ agentRouter.get('/api/recommendations', (req, res) => {
 });
 
 agentRouter.get('/api/recommendations/:id', (req, res) => {
-  const guard = requireOperationalUser(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const rec = recommendationRepository.findById(req.params.id);
   if (!rec) return res.status(404).json({ error: 'التوصية غير موجودة.' });
@@ -85,7 +88,9 @@ agentRouter.get('/api/recommendations/:id', (req, res) => {
 });
 
 agentRouter.get('/api/recommendations/:id/audit', (req, res) => {
-  const guard = requireOperationalUser(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const rec = recommendationRepository.findById(req.params.id);
   if (!rec) return res.status(404).json({ error: 'التوصية غير موجودة.' });
@@ -93,7 +98,9 @@ agentRouter.get('/api/recommendations/:id/audit', (req, res) => {
 });
 
 agentRouter.get('/api/recommendations/:id/verification', (req, res) => {
-  const guard = requireOperationalUser(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const rec = recommendationRepository.findById(req.params.id);
   if (!rec) return res.status(404).json({ error: 'التوصية غير موجودة.' });
@@ -104,7 +111,9 @@ agentRouter.get('/api/recommendations/:id/verification', (req, res) => {
 });
 
 agentRouter.post('/api/recommendations/:id/approve', async (req, res) => {
-  const guard = requireOperationalUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
 
   try {
@@ -116,7 +125,9 @@ agentRouter.post('/api/recommendations/:id/approve', async (req, res) => {
 });
 
 agentRouter.post('/api/recommendations/:id/reject', (req, res) => {
-  const guard = requireOperationalUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
 
   try {
@@ -128,7 +139,9 @@ agentRouter.post('/api/recommendations/:id/reject', (req, res) => {
 });
 
 agentRouter.post('/api/recommendations/:id/request-review', (req, res) => {
-  const guard = requireOperationalUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
 
   try {
@@ -148,7 +161,9 @@ agentRouter.post('/api/recommendations/:id/request-review', (req, res) => {
 // isolation-snapshot tests across every phase rely on its exact
 // unbounded semantics to compare full-table state).
 agentRouter.get('/api/audit-logs', (req, res) => {
-  const guard = requireOperationalUser(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json(auditRepository.findFiltered({ limit: 500 }));
 });
@@ -158,29 +173,44 @@ agentRouter.get('/api/audit-logs', (req, res) => {
 // already defined in server.ts (`/api/buses`, `/api/routes`, ...). Only the
 // Approval Center's detail view (Situation / AI Prediction sections) needs
 // these — no new business logic, just repository reads.
-//
-// Phase 7A: this is operational reference data (not governance/audit), and
-// /api/routes/:id/stops specifically is already read by the Driver Journey
-// Console (journeysApi.ts's getRouteStops) — so admin/school/driver via
-// requireJourneyReader (unscoped: called with no tripId, exactly the same
-// "any of admin/school/driver" primitive journeyRoutes.ts already reuses
-// for its own unscoped reads), not the narrower operational-only guard.
 agentRouter.get('/api/trips', (req, res) => {
-  const guard = requireJourneyReader(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireJourneyReader(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json(tripRepository.findAll());
 });
 
 agentRouter.get('/api/trips/:id', (req, res) => {
-  const guard = requireJourneyReader(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireJourneyReader(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const trip = tripRepository.findById(req.params.id);
   if (!trip) return res.status(404).json({ error: 'الرحلة غير موجودة.' });
   res.json(trip);
 });
 
+// Phase 14 — governed bus listing. Previously there was no live way for the
+// admin/school UI to even see the real governed buses (the ones journeys/
+// GPS/Parent Live Journey actually run against) to link a legacy student to
+// one (see server.ts's POST /api/students/:id/provision-governed). Read-only,
+// same guard as the existing single-bus governed read below. Deliberately
+// NOT `/api/buses` — that path is already the LEGACY bus list
+// (server.ts, `legacyBusRepository.findAll()`) and mounting a second
+// same-path route on the governed data would silently shadow one of them.
+agentRouter.get('/api/governed/buses', (req, res) => {
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireJourneyReader(identity.email);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+  res.json(busRepository.findAll());
+});
+
 agentRouter.get('/api/buses/:id', (req, res) => {
-  const guard = requireJourneyReader(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireJourneyReader(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const bus = busRepository.findById(req.params.id);
   if (!bus) return res.status(404).json({ error: 'الحافلة غير موجودة.' });
@@ -188,7 +218,9 @@ agentRouter.get('/api/buses/:id', (req, res) => {
 });
 
 agentRouter.get('/api/routes/:id', (req, res) => {
-  const guard = requireJourneyReader(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireJourneyReader(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const route = routeRepository.findById(req.params.id);
   if (!route) return res.status(404).json({ error: 'المسار غير موجود.' });
@@ -197,15 +229,41 @@ agentRouter.get('/api/routes/:id', (req, res) => {
 
 // Stop metadata only (name/order/coordinates) — not GPS tracking, just the
 // static route definition. Needed by the Driver Journey Console (Phase 3B
-// §24/§40) to record which stop a student approached/was dropped off at.
+// §24/§40) to record which stop a student approached/was dropped off at,
+// and by the Parent Live Journey map (ChildDetailSheet.tsx) to render stop
+// markers for the parent's own child's route.
+//
+// Phase 15 — ownership-scoped for parents (spec §9): re-derives, server-side,
+// whether ANY of this parent's real authorized children (ParentAccessService.
+// isRouteAuthorizedForParent — the same Phase 13 identity bridge, never a
+// client-supplied claim) currently has a trip running on the requested
+// route. A parent who owns no child on this route gets 403, exactly like
+// any other role that fails requireJourneyReader — never a broad "any
+// parent can read any route's stops" grant. This does not widen
+// JOURNEY_READ_ROLES itself; parent is handled as a distinct, narrower
+// branch before falling back to the unchanged role check for every other
+// caller (admin/school/driver — see requireJourneyReader's own docstring).
 agentRouter.get('/api/routes/:id/stops', (req, res) => {
-  const guard = requireJourneyReader(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+
+  const requester = userRepository.findByEmail(identity.email);
+  if (requester && requester.role === 'parent') {
+    if (!isRouteAuthorizedForParent(requester, req.params.id)) {
+      return res.status(403).json({ error: 'لا يمكنك الاطلاع على بيانات مسار لا يخص أياً من أبنائك.' });
+    }
+    return res.json(routeRepository.findStopsByRouteId(req.params.id));
+  }
+
+  const guard = requireJourneyReader(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json(routeRepository.findStopsByRouteId(req.params.id));
 });
 
 agentRouter.get('/api/predictions/:id', (req, res) => {
-  const guard = requireOperationalUser(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const prediction = predictionRepository.findById(req.params.id);
   if (!prediction) return res.status(404).json({ error: 'التنبؤ غير موجود.' });

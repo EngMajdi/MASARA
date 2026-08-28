@@ -22,6 +22,7 @@ import { AIOperationsFeed } from './components/AIOperationsFeed';
 import { AuthModal, AuthUser } from './components/AuthModal';
 import { ForcedPasswordChangeGate } from './components/ForcedPasswordChangeGate';
 import { EmployeeManagementModal } from './components/EmployeeManagementModal';
+import { GovernedFleetSetupModal } from './components/GovernedFleetSetupModal';
 import { legacyAuthHeaders } from './services/legacyAuthHeaders';
 
 export default function App() {
@@ -54,6 +55,7 @@ export default function App() {
   const [showAdvisorModal, setShowAdvisorModal] = useState(false);
   const [showDataManagementModal, setShowDataManagementModal] = useState(false);
   const [showEmployeeManagement, setShowEmployeeManagement] = useState(false);
+  const [showFleetSetupModal, setShowFleetSetupModal] = useState(false);
   const [showApprovalCenter, setShowApprovalCenter] = useState(false);
   const [showSimulationCenter, setShowSimulationCenter] = useState(false);
   const [showOperationsFeed, setShowOperationsFeed] = useState(false);
@@ -281,6 +283,7 @@ export default function App() {
             currentUser={currentUser}
             onOpenDataManagement={() => setShowDataManagementModal(true)}
             onOpenApprovalCenter={() => setShowApprovalCenter(true)}
+            onOpenFleetSetup={() => setShowFleetSetupModal(true)}
           />
         )}
 
@@ -296,6 +299,7 @@ export default function App() {
             currentUser={currentUser}
             onOpenDataManagement={() => setShowDataManagementModal(true)}
             onOpenEmployeeManagement={() => setShowEmployeeManagement(true)}
+            onOpenFleetSetup={() => setShowFleetSetupModal(true)}
             onOpenApprovalCenter={() => setShowApprovalCenter(true)}
             onOpenSimulationCenter={() => setShowSimulationCenter(true)}
             onOpenOperationsFeed={() => setShowOperationsFeed(true)}
@@ -327,6 +331,8 @@ export default function App() {
       />
 
       <EmployeeManagementModal isOpen={showEmployeeManagement} onClose={() => setShowEmployeeManagement(false)} currentUser={currentUser} />
+
+      <GovernedFleetSetupModal isOpen={showFleetSetupModal} onClose={() => setShowFleetSetupModal(false)} currentUser={currentUser} />
 
       <ApprovalCenter isOpen={showApprovalCenter} onClose={() => setShowApprovalCenter(false)} currentUser={currentUser} />
 

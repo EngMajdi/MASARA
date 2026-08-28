@@ -513,7 +513,10 @@ export interface ParentJourneyEventView {
 }
 
 export interface ParentJourneyView {
-  child: { id: string; name: string };
+  // legacyStudentId (Phase 13): the real, stable identity bridge back to
+  // this app's legacy Student.id — use this, never `name`, to match a
+  // ParentJourneyView to a Student the frontend already has.
+  child: { id: string; name: string; legacyStudentId: string | null };
   journey: {
     id: string;
     state: JourneyState;

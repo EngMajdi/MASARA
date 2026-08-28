@@ -15,7 +15,7 @@ import {
   type GpsSimulationConfig,
   type SpeedProfile,
 } from '../services/GpsSimulationEngine';
-import { requireOperationalUser } from '../services/authz';
+import { requireOperationalUser, requireVerifiedEmail } from '../services/authz';
 
 // GPS Simulation controls (Phase 4A) — admin/school only, same governed
 // gate as the Phase 2B scenario simulator (spec §35: a driver gets no GPS
@@ -24,6 +24,9 @@ import { requireOperationalUser } from '../services/authz';
 // stricter than simulationRoutes.ts's unguarded GET endpoints on purpose,
 // since Phase 4A's own spec §53 makes "unauthenticated -> rejected" a
 // mandatory test for every operation).
+//
+// Phase 11 SECURITY FIX — identity now comes from a verified session token
+// (`requireVerifiedEmail`), never a client-supplied `userEmail` query/body field.
 export const gpsSimulationRouter = Router();
 
 const VALID_SPEED_PROFILES = new Set<SpeedProfile>(['STOPPED', 'SLOW', 'NORMAL', 'FAST']);
@@ -38,13 +41,17 @@ function handleGpsError(err: unknown, res: Response) {
 }
 
 gpsSimulationRouter.get('/api/gps-simulation', (req, res) => {
-  const guard = requireOperationalUser(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json(listGpsSessions());
 });
 
 gpsSimulationRouter.post('/api/gps-simulation/start', (req, res) => {
-  const guard = requireOperationalUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
 
   const { tripId, speedProfile, tickSeconds, speedMultiplier } = req.body ?? {};
@@ -70,7 +77,9 @@ gpsSimulationRouter.post('/api/gps-simulation/start', (req, res) => {
 });
 
 gpsSimulationRouter.post('/api/gps-simulation/reset', (req, res) => {
-  const guard = requireOperationalUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   // In-memory bookkeeping only — no database table exists for GPS sessions
   // or observations (spec §31/§68).
@@ -79,7 +88,9 @@ gpsSimulationRouter.post('/api/gps-simulation/reset', (req, res) => {
 });
 
 gpsSimulationRouter.get('/api/gps-simulation/:id', (req, res) => {
-  const guard = requireOperationalUser(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     res.json(getGpsSession(req.params.id));
@@ -89,7 +100,9 @@ gpsSimulationRouter.get('/api/gps-simulation/:id', (req, res) => {
 });
 
 gpsSimulationRouter.get('/api/gps-simulation/:id/observations', (req, res) => {
-  const guard = requireOperationalUser(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     res.json(getGpsSession(req.params.id).observations);
@@ -99,7 +112,9 @@ gpsSimulationRouter.get('/api/gps-simulation/:id/observations', (req, res) => {
 });
 
 gpsSimulationRouter.post('/api/gps-simulation/:id/advance', (req, res) => {
-  const guard = requireOperationalUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     const observation = advanceGpsSimulation(req.params.id);
@@ -110,7 +125,9 @@ gpsSimulationRouter.post('/api/gps-simulation/:id/advance', (req, res) => {
 });
 
 gpsSimulationRouter.post('/api/gps-simulation/:id/pause', (req, res) => {
-  const guard = requireOperationalUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     res.json({ success: true, session: pauseGpsSimulation(req.params.id) });
@@ -120,7 +137,9 @@ gpsSimulationRouter.post('/api/gps-simulation/:id/pause', (req, res) => {
 });
 
 gpsSimulationRouter.post('/api/gps-simulation/:id/resume', (req, res) => {
-  const guard = requireOperationalUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     res.json({ success: true, session: resumeGpsSimulation(req.params.id) });
@@ -130,7 +149,9 @@ gpsSimulationRouter.post('/api/gps-simulation/:id/resume', (req, res) => {
 });
 
 gpsSimulationRouter.post('/api/gps-simulation/:id/cancel', (req, res) => {
-  const guard = requireOperationalUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     res.json({ success: true, session: cancelGpsSimulation(req.params.id) });

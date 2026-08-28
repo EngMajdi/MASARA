@@ -22,7 +22,7 @@ import {
   type JourneyActor,
 } from '../services/JourneyService';
 import { InvalidJourneyTransitionError } from '../domain/JourneyStateMachine';
-import { requireJourneyActor, requireJourneyReader, requireOperationalUser, requireDriverIdentity } from '../services/authz';
+import { requireJourneyActor, requireJourneyReader, requireOperationalUser, requireDriverIdentity, requireVerifiedEmail } from '../services/authz';
 import { tripRepository } from '../repositories/tripRepository';
 import { studentRepository } from '../repositories/studentRepository';
 import { busRepository } from '../repositories/busRepository';
@@ -33,6 +33,15 @@ import { routeRepository } from '../repositories/routeRepository';
 // actor — there is no generic "set state to X" endpoint, so a client can
 // never submit an arbitrary target state (spec §11/§50, a deliberate
 // hardening beyond the spec's own illustrative `POST .../transition` example).
+//
+// Phase 11 SECURITY FIX — every route below used to resolve identity from a
+// client-supplied `userEmail` query/body field, with no verification the
+// caller actually held a session for that email (Phase 10 UAT finding).
+// Identity now comes from a real, verified session token
+// (`requireVerifiedEmail`) on every route, including every journey-transition
+// write below — a driver's real identity is what `requireJourneyActor`
+// ownership-checks against, so this closes a real "any caller who knows a
+// driver's email could operate that driver's trip" gap, not just a read leak.
 export const journeyRouter = Router();
 
 function handleJourneyError(err: unknown, res: Response) {
@@ -69,7 +78,12 @@ function resolveActor(
     res.status(404).json({ error: 'الرحلة الطلابية (Journey) غير موجودة.', code: 'JOURNEY_NOT_FOUND' });
     return null;
   }
-  const guard = requireJourneyActor(req.body?.userEmail, journey.tripId);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) {
+    res.status(identity.status).json({ error: identity.error });
+    return null;
+  }
+  const guard = requireJourneyActor(identity.email, journey.tripId);
   if (guard.ok === false) {
     res.status(guard.status).json({ error: guard.error });
     return null;
@@ -80,25 +94,29 @@ function resolveActor(
 // ---- Reads ----
 
 journeyRouter.get('/api/journeys/:id', (req, res) => {
-  const baseGuard = requireJourneyReader(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const baseGuard = requireJourneyReader(identity.email);
   if (baseGuard.ok === false) return res.status(baseGuard.status).json({ error: baseGuard.error });
   const journey = getJourney(req.params.id);
   if (!journey) return res.status(404).json({ error: 'الرحلة الطلابية (Journey) غير موجودة.', code: 'JOURNEY_NOT_FOUND' });
   // Phase 3B §49: a driver may only read a Journey that belongs to their own trip.
   if (baseGuard.user.role === 'driver') {
-    const scoped = requireJourneyReader(req.query.userEmail, journey.tripId);
+    const scoped = requireJourneyReader(identity.email, journey.tripId);
     if (scoped.ok === false) return res.status(scoped.status).json({ error: scoped.error });
   }
   res.json(journey);
 });
 
 journeyRouter.get('/api/journeys/:id/events', (req, res) => {
-  const baseGuard = requireJourneyReader(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const baseGuard = requireJourneyReader(identity.email);
   if (baseGuard.ok === false) return res.status(baseGuard.status).json({ error: baseGuard.error });
   const journey = getJourney(req.params.id);
   if (!journey) return res.status(404).json({ error: 'الرحلة الطلابية (Journey) غير موجودة.', code: 'JOURNEY_NOT_FOUND' });
   if (baseGuard.user.role === 'driver') {
-    const scoped = requireJourneyReader(req.query.userEmail, journey.tripId);
+    const scoped = requireJourneyReader(identity.email, journey.tripId);
     if (scoped.ok === false) return res.status(scoped.status).json({ error: scoped.error });
   }
   try {
@@ -109,20 +127,24 @@ journeyRouter.get('/api/journeys/:id/events', (req, res) => {
 });
 
 journeyRouter.get('/api/students/:studentId/journey', (req, res) => {
-  const baseGuard = requireJourneyReader(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const baseGuard = requireJourneyReader(identity.email);
   if (baseGuard.ok === false) return res.status(baseGuard.status).json({ error: baseGuard.error });
   const tripId = typeof req.query.tripId === 'string' ? req.query.tripId : undefined;
   const journey = getStudentJourney(req.params.studentId, tripId);
   if (!journey) return res.status(404).json({ error: 'لا توجد رحلة طلابية لهذا الطالب.', code: 'JOURNEY_NOT_FOUND' });
   if (baseGuard.user.role === 'driver') {
-    const scoped = requireJourneyReader(req.query.userEmail, journey.tripId);
+    const scoped = requireJourneyReader(identity.email, journey.tripId);
     if (scoped.ok === false) return res.status(scoped.status).json({ error: scoped.error });
   }
   res.json(journey);
 });
 
 journeyRouter.get('/api/trips/:tripId/journeys', (req, res) => {
-  const guard = requireJourneyReader(req.query.userEmail, req.params.tripId);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireJourneyReader(identity.email, req.params.tripId);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const trip = tripRepository.findById(req.params.tripId);
   if (!trip) return res.status(404).json({ error: 'الرحلة غير موجودة.' });
@@ -131,17 +153,21 @@ journeyRouter.get('/api/trips/:tripId/journeys', (req, res) => {
 });
 
 journeyRouter.get('/api/trips/:tripId/journeys/summary', (req, res) => {
-  const guard = requireJourneyReader(req.query.userEmail, req.params.tripId);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireJourneyReader(identity.email, req.params.tripId);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json(getTripJourneySummary(req.params.tripId));
 });
 
 // Driver Journey Console data source (Phase 3B §40) — the driver's OWN
 // trips + their real journeys, resolved entirely from the authenticated
-// email via requireDriverIdentity. No tripId or driverId is ever accepted
+// identity via requireDriverIdentity. No tripId or driverId is ever accepted
 // from the client here; a driver cannot ask for anyone else's roster.
 journeyRouter.get('/api/driver/trips', (req, res) => {
-  const guard = requireDriverIdentity(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireDriverIdentity(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const trips = tripRepository.findByDriverId(guard.driver.id);
   const withJourneys = trips.map((trip) => {
@@ -166,7 +192,9 @@ journeyRouter.get('/api/driver/trips', (req, res) => {
 // ---- Creation (bulk backfill for a trip's roster — spec §30/§48) ----
 
 journeyRouter.post('/api/trips/:tripId/journeys/ensure', (req, res) => {
-  const guard = requireOperationalUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     const journeys = ensureJourneysForTrip(req.params.tripId, { actorId: guard.user.id, actorType: guard.user.role as JourneyActor['actorType'] });

@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>مَسارَا — كتيب تعريفي</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --primary:#2563eb;
+    --primary-dark:#1d4ed8;
+    --primary-soft:#eff6ff;
+    --primary-border:#bfdbfe;
+    --ink:#0f172a;
+    --ink-soft:#475569;
+    --line:#e2e8f0;
+    --paper:#ffffff;
+    --amber:#d97706;
+    --amber-soft:#fffbeb;
+    --green:#16a34a;
+    --green-soft:#f0fdf4;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{
+    font-family:'Tajawal',-apple-system,'Segoe UI',Tahoma,sans-serif;
+    color:var(--ink);
+    background:var(--paper);
+    direction:rtl;
+    font-size:15px;
+    line-height:1.85;
+  }
+  @page{ size:A4; margin:0; }
+
+  .page{
+    width:210mm;
+    min-height:297mm;
+    padding:16mm 18mm;
+    position:relative;
+    page-break-after:always;
+    overflow:hidden;
+  }
+  .page:last-child{ page-break-after:auto; }
+
+  /* ---------- shared chrome ---------- */
+  .kicker{
+    display:inline-flex; align-items:center; gap:8px;
+    font-size:12px; font-weight:700; color:var(--primary);
+    background:var(--primary-soft); border:1px solid var(--primary-border);
+    padding:5px 14px; border-radius:999px; letter-spacing:.3px;
+  }
+  h1{ font-size:30px; font-weight:900; margin-top:14px; color:var(--ink); }
+  h2.section-title{
+    font-size:24px; font-weight:800; color:var(--ink); margin-bottom:6px;
+  }
+  .lede{ color:var(--ink-soft); font-size:15.5px; margin-bottom:22px; max-width:150mm; }
+  .footer{
+    position:absolute; bottom:12mm; left:18mm; right:18mm;
+    display:flex; justify-content:space-between; align-items:center;
+    font-size:10.5px; color:#94a3b8; border-top:1px solid var(--line); padding-top:8px;
+  }
+  .footer .brand{ font-weight:800; color:var(--primary); }
+
+  /* ---------- cover ---------- */
+  .cover{
+    background:linear-gradient(160deg,#1d4ed8 0%,#2563eb 45%,#1e3a8a 100%);
+    color:#fff; display:flex; flex-direction:column; justify-content:space-between;
+    padding:22mm 20mm;
+  }
+  .cover .top-row{ display:flex; justify-content:space-between; align-items:flex-start; }
+  .cover .badge{
+    font-size:12px; font-weight:700; background:rgba(255,255,255,.14);
+    border:1px solid rgba(255,255,255,.35); padding:6px 14px; border-radius:999px;
+  }
+  .cover .wordmark{
+    font-size:64px; font-weight:900; letter-spacing:1px; margin-top:60px;
+  }
+  .cover .tagline{
+    font-size:20px; font-weight:500; margin-top:10px; color:#dbeafe; max-width:130mm;
+  }
+  .cover .desc{
+    font-size:14.5px; color:#c7d7fb; margin-top:22px; max-width:120mm; line-height:1.9;
+  }
+  .cover .pillars{
+    display:flex; gap:12px; margin-top:34px;
+  }
+  .cover .pill{
+    background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.25);
+    border-radius:14px; padding:14px 16px; flex:1; font-size:12.5px; font-weight:600;
+  }
+  .cover .pill .num{ display:block; font-size:22px; font-weight:900; margin-bottom:4px; }
+  .cover .bottom-row{
+    display:flex; justify-content:space-between; align-items:flex-end; color:#c7d7fb; font-size:11.5px;
+  }
+
+  /* ---------- icon tiles ---------- */
+  .icon-tile{
+    width:46px;height:46px;border-radius:12px;background:var(--primary-soft);
+    display:flex;align-items:center;justify-content:center;color:var(--primary);flex-shrink:0;
+  }
+  .icon-tile svg{ width:24px;height:24px; }
+
+  /* ---------- two-col problem/solution ---------- */
+  .split{ display:flex; gap:16px; margin-top:6px; }
+  .split .col{ flex:1; border-radius:16px; padding:18px 18px 20px; }
+  .col.problem{ background:var(--amber-soft); border:1px solid #fde68a; }
+  .col.solution{ background:var(--green-soft); border:1px solid #bbf7d0; }
+  .col h3{ font-size:15.5px; font-weight:800; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+  .col.problem h3{ color:#92400e; }
+  .col.solution h3{ color:#166534; }
+  .col ul{ list-style:none; }
+  .col li{ font-size:13px; color:var(--ink-soft); padding:6px 0 6px 0; border-top:1px dashed rgba(0,0,0,.08); }
+  .col li:first-child{ border-top:none; }
+
+  /* ---------- flow diagram ---------- */
+  .flow{ display:flex; align-items:stretch; gap:0; margin:26px 0 8px; }
+  .flow .step{
+    flex:1; background:var(--paper); border:1.5px solid var(--line); border-radius:14px;
+    padding:14px 10px; text-align:center; position:relative;
+  }
+  .flow .step .n{
+    width:26px;height:26px;border-radius:50%;background:var(--primary);color:#fff;
+    font-size:12px; font-weight:800; display:flex; align-items:center; justify-content:center;
+    margin:0 auto 8px;
+  }
+  .flow .step .t{ font-size:12px; font-weight:800; color:var(--ink); }
+  .flow .step .d{ font-size:10.5px; color:var(--ink-soft); margin-top:3px; }
+  .flow .arrow{ display:flex; align-items:center; justify-content:center; width:20px; color:#94a3b8; font-size:16px; }
+
+  /* ---------- feature cards ---------- */
+  .cards{ display:flex; flex-direction:column; gap:12px; margin-top:14px; }
+  .card{
+    display:flex; gap:14px; align-items:flex-start;
+    border:1px solid var(--line); border-radius:14px; padding:14px 16px;
+  }
+  .card .body h4{ font-size:14.5px; font-weight:800; margin-bottom:3px; }
+  .card .body p{ font-size:12.8px; color:var(--ink-soft); }
+
+  .role-header{
+    display:flex; align-items:center; gap:12px; margin-bottom:4px;
+    background:var(--primary-soft); border:1px solid var(--primary-border);
+    border-radius:14px; padding:14px 16px;
+  }
+  .role-header .icon-tile{ background:#fff; }
+  .role-header .rt{ font-size:17px; font-weight:900; color:var(--primary-dark); }
+  .role-header .rd{ font-size:12px; color:var(--ink-soft); margin-top:2px; }
+
+  /* ---------- trust grid ---------- */
+  .trust-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:16px; }
+  .trust-item{ border:1px solid var(--line); border-radius:14px; padding:14px 16px; }
+  .trust-item h4{ font-size:13.5px; font-weight:800; margin-bottom:5px; display:flex; gap:8px; align-items:center; }
+  .trust-item p{ font-size:12px; color:var(--ink-soft); }
+  .trust-item .icon-tile{ width:34px;height:34px;border-radius:9px; }
+  .trust-item .icon-tile svg{ width:18px;height:18px; }
+
+  /* ---------- why us ---------- */
+  .why-list{ margin-top:10px; }
+  .why-row{ display:flex; gap:14px; padding:14px 0; border-top:1px solid var(--line); }
+  .why-row:first-child{ border-top:none; }
+  .why-row .icon-tile{ background:#fff; border:1.5px solid var(--primary-border); }
+  .why-row h4{ font-size:14.5px; font-weight:800; margin-bottom:3px; }
+  .why-row p{ font-size:12.8px; color:var(--ink-soft); }
+
+  .closing{
+    background:linear-gradient(160deg,#1d4ed8 0%,#1e3a8a 100%); color:#fff;
+    border-radius:20px; padding:26px 24px; margin-top:24px;
+  }
+  .closing h3{ font-size:20px; font-weight:900; margin-bottom:8px; }
+  .closing p{ font-size:13.5px; color:#dbeafe; line-height:1.9; }
+  .closing .note{
+    margin-top:14px; font-size:11.5px; color:#bfdbfe; border-top:1px solid rgba(255,255,255,.25);
+    padding-top:12px;
+  }
+
+  .badge-strip{ display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; }
+  .badge-strip span{
+    font-size:11.5px; font-weight:700; color:var(--primary-dark); background:var(--primary-soft);
+    border:1px solid var(--primary-border); padding:6px 12px; border-radius:999px;
+  }
+
+  .toc{ margin-top:20px; }
+  .toc-row{
+    display:flex; align-items:center; gap:14px; padding:11px 0; border-top:1px solid var(--line);
+  }
+  .toc-row:first-child{ border-top:none; }
+  .toc-row .no{ font-size:13px; font-weight:900; color:var(--primary); width:22px; }
+  .toc-row .tt{ flex:1; font-size:14px; font-weight:700; }
+  .toc-row .pg{ font-size:12px; color:#94a3b8; font-weight:700; }
+</style>
+</head>
+<body>
+
+<!-- ============ PAGE 1 — COVER ============ -->
+<section class="page cover">
+  <div class="top-row">
+    <span class="badge">كتيب تعريفي بالمنصة</span>
+    <span class="badge">2026</span>
+  </div>
+  <div>
+    <div class="wordmark">مَسارَا</div>
+    <div class="tagline">منصّة النقل المدرسي الذكية — طمأنينة أولياء الأمور، وضبط تشغيلي للمدرسة</div>
+    <div class="desc">
+      دليل مبسّط يشرح ما هي مَسارَا، وكيف تعمل، وما الذي تقدّمه لكل طرف — ولي الأمر،
+      السائق، إدارة المدرسة، والإدارة العامة — من لحظة انطلاق الحافلة صباحاً حتى
+      وصول كل طالب بأمان.
+    </div>
+  </div>
+  <div>
+    <div class="pillars">
+      <div class="pill"><span class="num">GPS</span>تتبّع مباشر لموقع الحافلة</div>
+      <div class="pill"><span class="num">🔔</span>إشعارات فورية لولي الأمر</div>
+      <div class="pill"><span class="num">🛡️</span>بيانات كل طالب لولي أمره فقط</div>
+    </div>
+    <div class="bottom-row" style="margin-top:34px;">
+      <span>مَسارَا · النقل المدرسي بثقة</span>
+      <span>نسخة تعريفية للعميل</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PAGE 2 — TOC / WHO WE ARE ============ -->
+<section class="page">
+  <span class="kicker">من نحن</span>
+  <h1>مَسارَا: النقل المدرسي، لكن بثقة أكبر</h1>
+  <p class="lede">
+    مَسارَا منصّة رقمية تربط أربعة أطراف في رحلة الطالب اليومية — المدرسة، السائق،
+    الطالب، وولي الأمر — عبر تدفّق واحد موثوق للمعلومة، بدلاً من مكالمات هاتفية
+    متفرقة، ومجموعات واتساب، وتخمين "وين وصلت الباص؟".
+  </p>
+
+  <div class="split">
+    <div class="col problem">
+      <h3>🙁 الوضع بدون مَسارَا</h3>
+      <ul>
+        <li>ولي الأمر لا يعرف موقع الحافلة إلا بالاتصال بالسائق مباشرة</li>
+        <li>المدرسة تدير الحافلات والمسارات يدوياً على ورق أو جداول منفصلة</li>
+        <li>لا سجل موثّق لمواعيد الوصول والانطلاق الفعلية</li>
+        <li>أي تأخير أو تغيير مسار يصل للأهل متأخراً، أو لا يصل أصلاً</li>
+      </ul>
+    </div>
+    <div class="col solution">
+      <h3>🙂 الوضع مع مَسارَا</h3>
+      <ul>
+        <li>تتبّع مباشر لموقع حافلة ابنه/ابنته من التطبيق مباشرة</li>
+        <li>لوحة تشغيل واحدة للمدرسة: الحافلات، المسارات، السائقون، الرحلات</li>
+        <li>سجل رحلات فعلي — كل رحلة موثّقة بوقتها وحالتها</li>
+        <li>إشعار فوري عند اقتراب الحافلة، التأخير، أو أي تغيير</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2 class="section-title" style="margin-top:30px;">محتويات الكتيّب</h2>
+  <div class="toc">
+    <div class="toc-row"><span class="no">٠١</span><span class="tt">كيف تعمل المنصّة من الداخل</span><span class="pg">صفحة ٣</span></div>
+    <div class="toc-row"><span class="no">٠٢</span><span class="tt">تجربة ولي الأمر</span><span class="pg">صفحة ٤</span></div>
+    <div class="toc-row"><span class="no">٠٣</span><span class="tt">تجربة السائق</span><span class="pg">صفحة ٥</span></div>
+    <div class="toc-row"><span class="no">٠٤</span><span class="tt">لوحة إدارة المدرسة</span><span class="pg">صفحة ٦</span></div>
+    <div class="toc-row"><span class="no">٠٥</span><span class="tt">الإدارة العامة والمساعد الذكي</span><span class="pg">صفحة ٧</span></div>
+    <div class="toc-row"><span class="no">٠٦</span><span class="tt">الأمان وخصوصية بيانات الطلاب</span><span class="pg">صفحة ٨</span></div>
+    <div class="toc-row"><span class="no">٠٧</span><span class="tt">لماذا مَسارَا</span><span class="pg">صفحة ٩</span></div>
+  </div>
+
+  <div class="footer"><span class="brand">مَسارَا</span><span>٢ / ٩</span></div>
+</section>
+
+<!-- ============ PAGE 3 — HOW IT WORKS ============ -->
+<section class="page">
+  <span class="kicker">٠١ · كيف تعمل المنصّة</span>
+  <h1>من إعداد المدرسة إلى إشعار ولي الأمر</h1>
+  <p class="lede">
+    رحلة واحدة تمر بخمس محطات واضحة. كل محطة مبنية على التي قبلها — فلا تتبّع مباشر
+    بدون رحلة، ولا رحلة بدون حافلة وسائق ومسار جاهزين.
+  </p>
+
+  <div class="flow">
+    <div class="step"><div class="n">١</div><div class="t">إعداد الأسطول</div><div class="d">المدرسة تضيف الحافلة، المسار، ونقاط التوقف</div></div>
+    <div class="arrow">›</div>
+    <div class="step"><div class="n">٢</div><div class="t">تكليف السائق</div><div class="d">ربط سائق حقيقي بحافلة ورحلة محددة</div></div>
+    <div class="arrow">›</div>
+    <div class="step"><div class="n">٣</div><div class="t">بدء الرحلة</div><div class="d">السائق يبدأ الرحلة من شاشته الخاصة</div></div>
+    <div class="arrow">›</div>
+    <div class="step"><div class="n">٤</div><div class="t">تتبّع مباشر</div><div class="d">موقع الحافلة يتحدّث تلقائياً أثناء الرحلة</div></div>
+    <div class="arrow">›</div>
+    <div class="step"><div class="n">٥</div><div class="t">متابعة الأهل</div><div class="d">ولي الأمر يشاهد الرحلة ويستلم الإشعارات</div></div>
+  </div>
+
+  <h2 class="section-title" style="margin-top:34px;">أربعة أطراف، تدفّق واحد للمعلومة</h2>
+  <div class="cards">
+    <div class="card">
+      <div class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1m4 0h1m-6 4h1m4 0h1m-6 4h1m4 0h1"/></svg></div>
+      <div class="body"><h4>المدرسة</h4><p>تُعِدّ الحافلات والمسارات ونقاط التوقف، وتُكلّف السائقين، وتراقب كل ما يجري تحت مظلّتها من لوحة تشغيل واحدة.</p></div>
+    </div>
+    <div class="card">
+      <div class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="15" height="12" rx="2"/><path d="M16 10h3l2 3v5h-5"/><circle cx="7.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg></div>
+      <div class="body"><h4>السائق</h4><p>شاشة واحدة على هاتفه: طلاب اليوم، بدء الرحلة وإنهاؤها، وموقعه يُبَث تلقائياً طوال الرحلة دون أي إعداد إضافي.</p></div>
+    </div>
+    <div class="card">
+      <div class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg></div>
+      <div class="body"><h4>الطالب</h4><p>مرتبط بحافلته ومحطة انتظاره وولي أمره ضمن النظام — وكل ذلك يبقى مرئياً فقط لولي أمره، لا لأي طرف آخر.</p></div>
+    </div>
+    <div class="card">
+      <div class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>
+      <div class="body"><h4>ولي الأمر</h4><p>يفتح التطبيق فيجد حافلة ابنه على الخريطة مباشرة، مع إشعار عند اقترابها من محطته، دون حاجة لأي اتصال هاتفي.</p></div>
+    </div>
+  </div>
+
+  <div class="footer"><span class="brand">مَسارَا</span><span>٣ / ٩</span></div>
+</section>
+
+<!-- ============ PAGE 4 — PARENT ============ -->
+<section class="page">
+  <div class="role-header">
+    <div class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>
+    <div><div class="rt">تجربة ولي الأمر</div><div class="rd">صفحة ٤ — راحة بال يومية، بلا مكالمات</div></div>
+  </div>
+  <p class="lede">
+    أكثر ما يشغل بال ولي الأمر هو سؤال واحد: "وين وصلت الحافلة الحين؟". مَسارَا
+    تجيب على هذا السؤال بلا أي جهد منه.
+  </p>
+
+  <div class="cards">
+    <div class="card"><div class="icon-tile">🗺️</div><div class="body"><h4>خريطة حيّة لموقع الحافلة</h4><p>موقع حافلة ابنه أو ابنته يظهر على الخريطة أثناء الرحلة، مع تحديث الحالة تلقائياً — لا حاجة لتحديث الصفحة يدوياً.</p></div></div>
+    <div class="card"><div class="icon-tile">🔔</div><div class="body"><h4>إشعارات فورية</h4><p>عند بدء الرحلة، اقتراب الحافلة من محطة ابنه، وصولها للمدرسة، أو أي تأخير — إشعار يصل مباشرة دون طلب.</p></div></div>
+    <div class="card"><div class="icon-tile">👨‍👩‍👧</div><div class="body"><h4>كل أبنائه في مكان واحد</h4><p>إن كان لديه أكثر من طالب، يرى الجميع في شاشة واحدة — كل طالب ببياناته وحافلته الخاصة، دون خلط بينهم.</p></div></div>
+    <div class="card"><div class="icon-tile">📋</div><div class="body"><h4>سجل الرحلات</h4><p>يمكنه مراجعة رحلات سابقة والاطمئنان على انتظام الوصول والانصراف، لا فقط الرحلة الحالية.</p></div></div>
+  </div>
+
+  <div class="closing" style="margin-top:26px; padding:18px 20px;">
+    <h3 style="font-size:15px;">الوعد لولي الأمر</h3>
+    <p style="font-size:12.5px;">لا يرى ولي الأمر أي بيانات لا تخصّ أبناءه — لا موقع حافلة أخرى، ولا اسم طالب آخر،
+    مهما تشابهت الأسماء. هذا مبدأ مبنيّ داخل النظام نفسه، وليس مجرد وعد تسويقي.</p>
+  </div>
+
+  <div class="footer"><span class="brand">مَسارَا</span><span>٤ / ٩</span></div>
+</section>
+
+<!-- ============ PAGE 5 — DRIVER ============ -->
+<section class="page">
+  <div class="role-header">
+    <div class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="15" height="12" rx="2"/><path d="M16 10h3l2 3v5h-5"/><circle cx="7.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg></div>
+    <div><div class="rt">تجربة السائق</div><div class="rd">صفحة ٥ — شاشة واحدة بسيطة، لا تعقيد</div></div>
+  </div>
+  <p class="lede">
+    السائق ليس مطالَباً بتعلّم نظام معقّد. شاشته مصمَّمة لتُفتح صباحاً، وتُستخدم بضغطة
+    أو ضغطتين طوال اليوم.
+  </p>
+
+  <div class="cards">
+    <div class="card"><div class="icon-tile">📱</div><div class="body"><h4>رحلة اليوم بوضوح</h4><p>يفتح شاشته فيجد رحلته، حافلته، وقائمة طلابه لهذا اليوم — بلا حاجة للبحث أو التخمين.</p></div></div>
+    <div class="card"><div class="icon-tile">▶️</div><div class="body"><h4>بدء وإنهاء الرحلة بضغطة</h4><p>يبدأ الرحلة عند الانطلاق وينهيها عند الوصول؛ النظام يتولى تسجيل الوقت والحالة تلقائياً.</p></div></div>
+    <div class="card"><div class="icon-tile">📍</div><div class="body"><h4>بثّ الموقع تلقائياً</h4><p>بمجرد بدء الرحلة، يُبَث موقع الحافلة لأولياء أمور طلابها دون أي إعداد إضافي من السائق.</p></div></div>
+    <div class="card"><div class="icon-tile">🧒</div><div class="body"><h4>قائمة طلاب دقيقة</h4><p>يرى فقط الطلاب المكلَّف بنقلهم على حافلته وفي رحلته — نفس مبدأ العزل المطبَّق على ولي الأمر.</p></div></div>
+  </div>
+
+  <div class="footer"><span class="brand">مَسارَا</span><span>٥ / ٩</span></div>
+</section>
+
+<!-- ============ PAGE 6 — SCHOOL ============ -->
+<section class="page">
+  <div class="role-header">
+    <div class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1m4 0h1m-6 4h1m4 0h1m-6 4h1m4 0h1"/></svg></div>
+    <div><div class="rt">لوحة إدارة المدرسة</div><div class="rd">صفحة ٦ — كل الأسطول تحت نظر واحد</div></div>
+  </div>
+  <p class="lede">
+    المدرسة تدير أسطولها بالكامل من مكان واحد: من إضافة أول حافلة، إلى متابعة آخر
+    رحلة انتهت اليوم.
+  </p>
+
+  <div class="cards">
+    <div class="card"><div class="icon-tile">🚌</div><div class="body"><h4>إعداد الأسطول</h4><p>إضافة حافلات، مسارات، ونقاط توقف مباشرة من التطبيق — دون حاجة لأي تدخّل تقني.</p></div></div>
+    <div class="card"><div class="icon-tile">🧑‍✈️</div><div class="body"><h4>تكليف السائقين</h4><p>ربط كل سائق بحافلة ورحلة محددة بضغطات قليلة، مع منع ازدواج التكليف على نفس السائق أو الحافلة.</p></div></div>
+    <div class="card"><div class="icon-tile">👥</div><div class="body"><h4>إدارة الحسابات</h4><p>إضافة موظفين (سائقين، مشرفين) وحسابات أولياء الأمور، مع أدوات لمراجعة اكتمال بيانات كل حساب.</p></div></div>
+    <div class="card"><div class="icon-tile">📊</div><div class="body"><h4>متابعة العمليات</h4><p>عرض حي لحالة كل رحلة وكل حافلة في اليوم — قيد التنفيذ، منتهية، أو متأخرة — من شاشة عمليات واحدة.</p></div></div>
+  </div>
+
+  <h2 class="section-title" style="margin-top:28px;">مصمَّمة لتناسب حجم المدرسة</h2>
+  <p class="lede" style="margin-bottom:6px;">
+    لا يحتاج فريق المدرسة إلى قاعدة بيانات أو دعم تقني لبدء التشغيل — كل خطوة، من أول
+    حافلة إلى أول رحلة مكتملة، تتم من داخل التطبيق نفسه.
+  </p>
+
+  <div class="footer"><span class="brand">مَسارَا</span><span>٦ / ٩</span></div>
+</section>
+
+<!-- ============ PAGE 7 — ADMIN + AI ============ -->
+<section class="page">
+  <div class="role-header">
+    <div class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg></div>
+    <div><div class="rt">الإدارة العامة والمساعد الذكي</div><div class="rd">صفحة ٧ — نظرة شاملة على كل شيء</div></div>
+  </div>
+  <p class="lede">
+    فوق مستوى المدرسة الواحدة، تمنح مَسارَا الإدارة العامة نظرة شاملة على التشغيل،
+    مدعومة بمساعد ذكاء اصطناعي يجيب على الأسئلة التشغيلية بلغة طبيعية.
+  </p>
+
+  <div class="cards">
+    <div class="card"><div class="icon-tile">🤖</div><div class="body"><h4>مساعد ذكي بالعربية</h4><p>يمكن سؤاله عن حالة الأسطول اليوم، أو عدد الرحلات المكتملة، فيجيب من البيانات المسجّلة فعلياً في النظام — دون تخمين أو معلومات غير موثّقة.</p></div></div>
+    <div class="card"><div class="icon-tile">✅</div><div class="body"><h4>مركز الموافقات</h4><p>مراجعة الطلبات التي تحتاج موافقة إدارية قبل تفعيلها، بدلاً من تنفيذها تلقائياً دون رقابة.</p></div></div>
+    <div class="card"><div class="icon-tile">🔍</div><div class="body"><h4>تدقيق سلامة البيانات</h4><p>أداة تكشف تلقائياً أي حساب أو طالب ناقص الربط في النظام، ليتم تصحيحه قبل أن يتحوّل لمشكلة تشغيلية.</p></div></div>
+    <div class="card"><div class="icon-tile">📈</div><div class="body"><h4>مركز المحاكاة والاختبار</h4><p>تجربة سيناريوهات تشغيلية (مثل حركة حافلة حية) بأمان قبل اعتمادها على أرض الواقع.</p></div></div>
+  </div>
+
+  <div class="footer"><span class="brand">مَسارَا</span><span>٧ / ٩</span></div>
+</section>
+
+<!-- ============ PAGE 8 — SECURITY/PRIVACY ============ -->
+<section class="page">
+  <span class="kicker">٠٦ · الأمان والخصوصية</span>
+  <h1>خصوصية بيانات الطلاب أولوية، لا إضافة لاحقة</h1>
+  <p class="lede">
+    في نظام يتعامل مع مواقع أطفال ومدارس، الأمان ليس ميزة تسويقية — إنه الأساس الذي
+    بُني عليه النظام من أول سطر.
+  </p>
+
+  <div class="trust-grid">
+    <div class="trust-item">
+      <h4><span class="icon-tile">🔒</span> عزل كامل بين العائلات</h4>
+      <p>كل ولي أمر يرى بيانات وموقع أبنائه فقط. هذا العزل تم اختباره فعلياً بسيناريوهات
+      متعمّدة لعائلتين تحملان أسماء متطابقة، للتأكد من عدم الخلط بينهما مهما تشابهت الأسماء.</p>
+    </div>
+    <div class="trust-item">
+      <h4><span class="icon-tile">🪪</span> هوية موثوقة، لا أسماء فقط</h4>
+      <p>لا يُعتمد على اسم الطالب أو ولي الأمر للتعرّف عليه داخل النظام — بل على معرّف
+      حقيقي مرتبط بسجلّه، حتى لا يتسبب تشابه الأسماء في أي خطأ.</p>
+    </div>
+    <div class="trust-item">
+      <h4><span class="icon-tile">🔑</span> دخول محمي بكلمة مرور</h4>
+      <p>كل حساب — ولي أمر، سائق، أو موظف مدرسة — محمي بكلمة مرور خاصة به، مع سياسات
+      واضحة لإعادة التعيين عند الحاجة.</p>
+    </div>
+    <div class="trust-item">
+      <h4><span class="icon-tile">🧭</span> كل طرف يرى ما يخصّه فقط</h4>
+      <p>السائق يرى طلابه فقط، ومسؤول المدرسة يرى أسطول مدرسته فقط — لا صلاحية تتجاوز
+      نطاق عمل صاحبها.</p>
+    </div>
+    <div class="trust-item">
+      <h4><span class="icon-tile">📝</span> بيانات صادقة، لا تجميل</h4>
+      <p>حين لا تتوفر معلومة حقيقية (مثل موقع سائق لم يبدأ رحلته)، يعرض النظام ذلك
+      بوضوح بدل اختلاق بيانات غير حقيقية.</p>
+    </div>
+    <div class="trust-item">
+      <h4><span class="icon-tile">🧪</span> يُختبر باستمرار</h4>
+      <p>كل تحديث للمنصّة يمر باختبارات آلية شاملة تتحقق من أن هذا العزل والأمان لم
+      يتأثرا بأي تعديل جديد قبل وصوله للمستخدم.</p>
+    </div>
+  </div>
+
+  <div class="footer"><span class="brand">مَسارَا</span><span>٨ / ٩</span></div>
+</section>
+
+<!-- ============ PAGE 9 — WHY US / CLOSING ============ -->
+<section class="page">
+  <span class="kicker">٠٧ · لماذا مَسارَا</span>
+  <h1>حل مبني حول رحلة الطالب الفعلية</h1>
+
+  <div class="why-list">
+    <div class="why-row">
+      <div class="icon-tile">🎯</div>
+      <div><h4>مصمَّم لهذه المهمة تحديداً</h4><p>ليس أداة عامة أُعيد توظيفها — كل شاشة فيه مبنية حول سؤال واحد: أين ابني الآن، وهل هو بأمان؟</p></div>
+    </div>
+    <div class="why-row">
+      <div class="icon-tile">🧩</div>
+      <div><h4>بلا تعقيد على المستخدم</h4><p>ولي الأمر والسائق لا يحتاجان تدريباً — الواجهة بسيطة، بالعربية، ومصمَّمة لتُفهم من أول استخدام.</p></div>
+    </div>
+    <div class="why-row">
+      <div class="icon-tile">🚀</div>
+      <div><h4>بدء تشغيل سريع</h4><p>يمكن للمدرسة إضافة أول حافلة ومسار وسائق وطالب، وتشغيل أول رحلة كاملة، من داخل التطبيق مباشرة دون انتظار إعداد تقني خارجي.</p></div>
+    </div>
+    <div class="why-row">
+      <div class="icon-tile">🛡️</div>
+      <div><h4>ثقة مبنية على اختبار حقيقي</h4><p>مبادئ العزل والخصوصية لم تُكتب كوعد فقط، بل خضعت لسيناريوهات اختبار حقيقية قبل اعتمادها.</p></div>
+    </div>
+  </div>
+
+  <div class="badge-strip">
+    <span>تتبّع GPS مباشر</span>
+    <span>إشعارات فورية</span>
+    <span>لوحة تشغيل موحّدة</span>
+    <span>مساعد ذكاء اصطناعي</span>
+    <span>واجهة عربية بالكامل</span>
+    <span>عزل كامل بين العائلات</span>
+  </div>
+
+  <div class="closing">
+    <h3>جاهزون لأول رحلة معكم</h3>
+    <p>
+      مَسارَا ليست فكرة على الورق — هي منصّة تعمل فعلياً اليوم، من إعداد أول حافلة إلى
+      وصول أول إشعار لولي أمر حقيقي. نرحّب بترتيب عرض توضيحي مباشر لفريق مدرستكم،
+      يوضّح تجربة كل طرف خطوة بخطوة على النظام الفعلي.
+    </p>
+    <div class="note">لجدولة عرض توضيحي أو لأي استفسار، يسعد فريق مَسارَا بالتواصل معكم عبر القناة التي تفضّلونها.</div>
+  </div>
+
+  <div class="footer"><span class="brand">مَسارَا</span><span>٩ / ٩</span></div>
+</section>
+
+</body>
+</html>

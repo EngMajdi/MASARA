@@ -70,14 +70,15 @@ export const SimulationCenter: React.FC<SimulationCenterProps> = ({ isOpen, onCl
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async (sessionId: string) => {
+    if (!currentUser) return;
     try {
-      const [s, ev] = await Promise.all([getSimulation(sessionId), getSimulationEvents(sessionId)]);
+      const [s, ev] = await Promise.all([getSimulation(sessionId, currentUser.sessionToken), getSimulationEvents(sessionId, currentUser.sessionToken)]);
       setSession(s);
       setEvents(ev);
-      if (s.recommendationId && currentUser) {
+      if (s.recommendationId) {
         const [rec, ver] = await Promise.all([
-          getRecommendation(s.recommendationId, currentUser.email).catch(() => null),
-          getRecommendationVerification(s.recommendationId, currentUser.email).catch(() => null),
+          getRecommendation(s.recommendationId, currentUser.sessionToken).catch(() => null),
+          getRecommendationVerification(s.recommendationId, currentUser.sessionToken).catch(() => null),
         ]);
         setRecommendation(rec);
         setVerification(ver);
@@ -86,12 +87,12 @@ export const SimulationCenter: React.FC<SimulationCenterProps> = ({ isOpen, onCl
       setError((err as Error).message);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.email]);
+  }, [currentUser?.sessionToken]);
 
   useEffect(() => {
     if (!isOpen || !currentUser) return;
-    listGovernedTrips(currentUser.email).then(setTrips).catch(() => {});
-    listSimulations().then((all) => {
+    listGovernedTrips(currentUser.sessionToken).then(setTrips).catch(() => {});
+    listSimulations(currentUser.sessionToken).then((all) => {
       const active = all.find((s) => s.status === 'RUNNING' || s.status === 'PAUSED');
       if (active) {
         setSession(active);
@@ -114,7 +115,7 @@ export const SimulationCenter: React.FC<SimulationCenterProps> = ({ isOpen, onCl
     setBusy(true);
     setError(null);
     try {
-      const { session: s } = await startSimulation(scenario, currentUser.email, selectedTripId || undefined);
+      const { session: s } = await startSimulation(scenario, currentUser.sessionToken, selectedTripId || undefined);
       setSession(s);
       setRecommendation(null);
       setVerification(null);
@@ -131,7 +132,7 @@ export const SimulationCenter: React.FC<SimulationCenterProps> = ({ isOpen, onCl
     setBusy(true);
     setError(null);
     try {
-      await advanceSimulation(session.id, currentUser.email);
+      await advanceSimulation(session.id, currentUser.sessionToken);
       await refresh(session.id);
     } catch (err) {
       setError((err as Error).message);
@@ -146,8 +147,8 @@ export const SimulationCenter: React.FC<SimulationCenterProps> = ({ isOpen, onCl
     setError(null);
     try {
       const { session: s } = session.status === 'RUNNING'
-        ? await pauseSimulation(session.id, currentUser.email)
-        : await resumeSimulation(session.id, currentUser.email);
+        ? await pauseSimulation(session.id, currentUser.sessionToken)
+        : await resumeSimulation(session.id, currentUser.sessionToken);
       setSession(s);
     } catch (err) {
       setError((err as Error).message);
@@ -161,7 +162,7 @@ export const SimulationCenter: React.FC<SimulationCenterProps> = ({ isOpen, onCl
     setBusy(true);
     setError(null);
     try {
-      const { session: s } = await cancelSimulation(session.id, currentUser.email);
+      const { session: s } = await cancelSimulation(session.id, currentUser.sessionToken);
       setSession(s);
     } catch (err) {
       setError((err as Error).message);
@@ -175,7 +176,7 @@ export const SimulationCenter: React.FC<SimulationCenterProps> = ({ isOpen, onCl
     setBusy(true);
     setError(null);
     try {
-      await resetSimulations(currentUser.email);
+      await resetSimulations(currentUser.sessionToken);
       setSession(null);
       setEvents([]);
       setRecommendation(null);
@@ -209,7 +210,7 @@ export const SimulationCenter: React.FC<SimulationCenterProps> = ({ isOpen, onCl
 
           {activeTab === 'gps' ? (
             currentUser ? (
-              <GpsSimulationPanel trips={trips} userEmail={currentUser.email} />
+              <GpsSimulationPanel trips={trips} sessionToken={currentUser.sessionToken} />
             ) : (
               <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-500 text-sm">
                 سجّل الدخول لاستخدام محاكاة GPS.

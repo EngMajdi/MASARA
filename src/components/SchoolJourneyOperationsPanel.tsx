@@ -7,7 +7,7 @@ import { JOURNEY_STATE_LABELS } from '../lib/eventDisplay';
 import { Bus, Users, RefreshCw, AlertTriangle, ChevronDown, ChevronUp, Radio, Inbox } from 'lucide-react';
 
 interface SchoolJourneyOperationsPanelProps {
-  userEmail: string;
+  sessionToken: string;
 }
 
 const POLL_MS = 4000;
@@ -16,7 +16,7 @@ const POLL_MS = 4000;
 // NOT a new dashboard. All counts come from GET /api/operations/journeys
 // (one backend-aggregated call, no client-side N+1); the roster drill-down
 // is fetched lazily, only for a trip the user actually expands.
-export const SchoolJourneyOperationsPanel: React.FC<SchoolJourneyOperationsPanelProps> = ({ userEmail }) => {
+export const SchoolJourneyOperationsPanel: React.FC<SchoolJourneyOperationsPanelProps> = ({ sessionToken }) => {
   const [overview, setOverview] = useState<TripWithJourneySummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -25,7 +25,7 @@ export const SchoolJourneyOperationsPanel: React.FC<SchoolJourneyOperationsPanel
   const [detail, setDetail] = useState<{ journey: JourneyWithStudent } | null>(null);
 
   const loadOverview = () => {
-    getOperationsJourneysOverview(userEmail)
+    getOperationsJourneysOverview(sessionToken)
       .then((data) => {
         setOverview(data);
         setError(null);
@@ -39,11 +39,11 @@ export const SchoolJourneyOperationsPanel: React.FC<SchoolJourneyOperationsPanel
     const interval = setInterval(loadOverview, POLL_MS);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userEmail]);
+  }, [sessionToken]);
 
   const loadRoster = (tripId: string) => {
     setRoster((prev) => ({ ...prev, [tripId]: 'loading' }));
-    getTripJourneys(tripId, userEmail)
+    getTripJourneys(tripId, sessionToken)
       .then((journeys) => setRoster((prev) => ({ ...prev, [tripId]: journeys })))
       .catch(() => setRoster((prev) => ({ ...prev, [tripId]: 'error' })));
   };
@@ -190,7 +190,7 @@ export const SchoolJourneyOperationsPanel: React.FC<SchoolJourneyOperationsPanel
         <JourneyDetailModal
           journey={detail.journey}
           studentName={detail.journey.studentName ?? 'طالب غير معروف'}
-          userEmail={userEmail}
+          sessionToken={sessionToken}
           onClose={() => setDetail(null)}
         />
       )}

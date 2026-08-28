@@ -12,20 +12,20 @@ import { getGovernedBus } from './approvalsApi';
  * matching display field. Results are cached for the component's lifetime
  * so repeated polls don't re-fetch a bus we've already resolved.
  */
-export function useGovernedBusNumbers(governedBusIds: string[], userEmail: string | undefined) {
+export function useGovernedBusNumbers(governedBusIds: string[], sessionToken: string | undefined) {
   const [map, setMap] = useState<Record<string, string>>({});
   const cacheRef = useRef<Record<string, string>>({});
   const pendingRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!userEmail) return;
+    if (!sessionToken) return;
     const missing = governedBusIds.filter((id) => id && !cacheRef.current[id] && !pendingRef.current.has(id));
     if (missing.length === 0) return;
 
     missing.forEach((id) => pendingRef.current.add(id));
     Promise.all(
       missing.map((id) =>
-        getGovernedBus(id, userEmail)
+        getGovernedBus(id, sessionToken)
           .then((bus) => {
             cacheRef.current[id] = bus.busNumber;
           })
@@ -36,7 +36,7 @@ export function useGovernedBusNumbers(governedBusIds: string[], userEmail: strin
       )
     ).then(() => setMap({ ...cacheRef.current }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [governedBusIds.join(','), userEmail]);
+  }, [governedBusIds.join(','), sessionToken]);
 
   return map;
 }

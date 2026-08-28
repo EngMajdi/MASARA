@@ -79,19 +79,19 @@ function minutesUntil(iso: string | null): number | null {
  * now read the same real governed source ChildDetailSheet already uses (see
  * its own P0-2 name-matching note — same caveat applies here).
  */
-function useGovernedJourneys(userEmail: string | undefined) {
+function useGovernedJourneys(sessionToken: string | undefined) {
   const [views, setViews] = useState<ParentJourneyView[]>([]);
   useEffect(() => {
-    if (!userEmail) return;
+    if (!sessionToken) return;
     let cancelled = false;
-    const load = () => getParentJourneys(userEmail).then((v) => !cancelled && setViews(v)).catch(() => !cancelled && setViews([]));
+    const load = () => getParentJourneys(sessionToken).then((v) => !cancelled && setViews(v)).catch(() => !cancelled && setViews([]));
     load();
     const interval = setInterval(load, 6000);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [userEmail]);
+  }, [sessionToken]);
   return views;
 }
 
@@ -118,11 +118,15 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ students, buses, not
   const selectedChild = myChildren.find((c) => c.id === selectedChildId) ?? null;
   const selectedBus = selectedChild ? buses.find((b) => b.id === selectedChild.busId) : undefined;
 
-  // Real governed ETA/journey per child (matched by name — see the hook's own P0-2 note).
-  // Never `bus.nextStopEtaMins` here: that field is static seed data (see
+  // Phase 13 — re-enabled using the real `legacyStudentId` bridge (see
+  // ChildDetailSheet.tsx's useGovernedRecord header comment): `governedFor`
+  // matches this app's own legacy `Student.id` against
+  // `view.child.legacyStudentId`, a real foreign key, never a display name.
+  // Still never `bus.nextStopEtaMins` — that field is static seed data (see
   // docs/LIVE_TRACKING_ARCHITECTURE_AUDIT.md) and must never be presented as a live countdown.
-  const governedViews = useGovernedJourneys(currentUser?.email);
-  const governedFor = (childName: string) => governedViews.find((v) => v.child.name === childName);
+  const governedViews = useGovernedJourneys(currentUser?.sessionToken);
+  const governedFor = (childId: string): ParentJourneyView | undefined =>
+    governedViews.find((v) => v.child.legacyStudentId === childId);
 
   // Pre-arrival alert engine — behavior preserved exactly from the prior
   // implementation (date-scoped localStorage dedup so a real event fires at
@@ -148,7 +152,7 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ students, buses, not
       const bus = buses.find((b) => b.id === child.busId);
       if (!bus) continue;
       // Only ever alert from a real, currently-active governed ETA — never the static seeded field.
-      const governed = governedFor(child.name);
+      const governed = governedFor(child.id);
       const currentEta = governed?.journey && governed.eta ? minutesUntil(governed.eta.estimatedArrivalAt) : null;
       if (currentEta === null) continue;
       const alertKey = `${child.id}-${bus.id}-${leadTimeMinutes}`;
@@ -227,7 +231,7 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ students, buses, not
             {myChildren.map((child) => {
               const bus = buses.find((b) => b.id === child.busId);
               const status = STATUS_META[child.status];
-              const governed = governedFor(child.name);
+              const governed = governedFor(child.id);
               const etaMinutes = governed?.journey && governed.eta ? minutesUntil(governed.eta.estimatedArrivalAt) : null;
               return (
                 <Card key={child.id} interactive padding="md" onClick={() => setSelectedChildId(child.id)} className="flex items-center gap-3.5">
@@ -319,7 +323,7 @@ export const ParentPortal: React.FC<ParentPortalProps> = ({ students, buses, not
             )}
           </Card>
 
-          {currentUser?.email && <NotificationsPanel userEmail={currentUser.email} />}
+          {currentUser?.sessionToken && <NotificationsPanel sessionToken={currentUser.sessionToken} />}
 
           {notifications.length === 0 ? (
             <EmptyState icon={<Bell />} title="لا توجد إشعارات" description="ستظهر هنا التنبيهات المتعلقة برحلة أبنائك فور توفرها." />

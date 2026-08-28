@@ -67,25 +67,25 @@ function minutesUntil(iso: string | null): number | null {
 }
 
 /**
- * Best-effort, name-matched cross-reference into the governed Journey Core
- * record for this child. P0-2 note: the legacy (this sheet's profile data)
- * and governed identity stores are not the same system and share no common
- * ID — matching by exact display name is the only safe, non-destructive way
- * to fold the live record in without a backend reconciliation decision. It
- * is correct for the current single-school demo dataset but would silently
- * mismatch two children who share an exact name — a real fix requires
- * BACKEND CHANGE REQUIRED (see the transformation report).
+ * Phase 13 — re-enabled using a real, stable ID, replacing the Phase 11
+ * name-matching disable. `legacyStudentId` is this sheet's own legacy
+ * `Student.id` (`student.id` below) — never a display name. The backend
+ * (ParentJourneyService.buildView, server/domain/parentAccessContract.ts)
+ * now returns that same legacy ID on every view's `child.legacyStudentId`,
+ * a real foreign key (database/schema.ts's `students.legacyStudentId`),
+ * so matching here is an exact ID comparison, not a guess that could
+ * mismatch two same-named children.
  */
-function useGovernedRecord(userEmail: string | undefined, studentName: string | undefined) {
+function useGovernedRecord(sessionToken: string | undefined, legacyStudentId: string | undefined) {
   const [view, setView] = useState<ParentJourneyView | null | undefined>(undefined);
   useEffect(() => {
-    if (!userEmail || !studentName) return;
+    if (!sessionToken || !legacyStudentId) return;
     let cancelled = false;
     const load = () =>
-      getParentJourneys(userEmail)
+      getParentJourneys(sessionToken)
         .then((views) => {
           if (cancelled) return;
-          setView(views.find((v) => v.child.name === studentName) ?? null);
+          setView(views.find((v) => v.child.legacyStudentId === legacyStudentId) ?? null);
         })
         .catch(() => !cancelled && setView(null));
     load();
@@ -94,7 +94,7 @@ function useGovernedRecord(userEmail: string | undefined, studentName: string | 
       cancelled = true;
       clearInterval(interval);
     };
-  }, [userEmail, studentName]);
+  }, [sessionToken, legacyStudentId]);
   return view;
 }
 
@@ -103,16 +103,16 @@ export const ChildDetailSheet: React.FC<ChildDetailSheetProps> = ({ student, bus
   const [absenceReason, setAbsenceReason] = useState('عذر مرضي');
   const [stops, setStops] = useState<GovernedRouteStop[]>([]);
 
-  const governedView = useGovernedRecord(currentUser?.email, student?.name);
+  const governedView = useGovernedRecord(currentUser?.sessionToken, student?.id);
 
   useEffect(() => {
     const routeId = governedView?.route?.id;
-    if (!routeId || !currentUser?.email) {
+    if (!routeId || !currentUser?.sessionToken) {
       setStops([]);
       return;
     }
-    getRouteStops(routeId, currentUser.email).then(setStops).catch(() => setStops([]));
-  }, [governedView?.route?.id, currentUser?.email]);
+    getRouteStops(routeId, currentUser.sessionToken).then(setStops).catch(() => setStops([]));
+  }, [governedView?.route?.id, currentUser?.sessionToken]);
 
   if (!student) return null;
   const status = STATUS_META[student.status];

@@ -3,10 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import { db } from '../../database/client';
-import { students, users } from '../../database/schema';
+import { students, users, legacyUsers, legacyStudents } from '../../database/schema';
 import { getParentJourneys, getParentJourneyEvents, ParentAccessDeniedError } from '../../server/services/ParentJourneyService';
 import { resolveAuthorizedStudents, isStudentAuthorized } from '../../server/services/ParentAccessService';
-import { DEMO_PARENT_PHONE_BY_EMAIL, JOURNEY_ACTIVE_STATES } from '../../server/domain/parentAccessContract';
+import { JOURNEY_ACTIVE_STATES } from '../../server/domain/parentAccessContract';
 import { requireParentUser, requireOperationalUser, requireJourneyReader, requireTelemetryReader } from '../../server/services/authz';
 import { userRepository } from '../../server/repositories/userRepository';
 import { studentRepository } from '../../server/repositories/studentRepository';
@@ -49,21 +49,48 @@ const parentAUser = () => userRepository.findByEmail('parent@masara.om')!;
 
 /**
  * Every test that creates its own Journey rows gets a completely fresh,
- * isolated (parent, child) pair — a unique phone/email/student, never
- * reusing the seeded demo parent's own two children across tests. This
- * avoids the (studentId, tripId) uniqueness constraint entirely (real
+ * isolated (parent, child) pair — a unique legacy user/student/email,
+ * never reusing the seeded demo parent's own two children across tests.
+ * This avoids the (studentId, tripId) uniqueness constraint entirely (real
  * journeys persist for the whole test FILE, not just one `it()` block —
- * same lesson learned in Phase 4E/4C) without weakening what's being tested:
- * the DEMO-ONLY mechanism itself is exercised identically either way.
+ * same lesson learned in Phase 4E/4C) without weakening what's being
+ * tested: the real Phase 13 identity bridge (legacy `parentId` FK ->
+ * governed `legacyStudentId` FK) is exercised identically either way,
+ * never a name/phone shortcut.
  */
 let freshChildCounter = 0;
 function createFreshAuthorizedChild() {
   freshChildCounter += 1;
   const admin = userRepository.findByEmail('admin@masara.om')!;
   const bus = busRepository.findAll()[0];
-  const phone = `+968 9900 ${String(freshChildCounter).padStart(4, '0')}`;
   const email = `fresh-parent-${freshChildCounter}-test@masara.om`;
+  const legacyParentId = `test-legacy-parent-${freshChildCounter}`;
+  const legacyStudentId = `test-legacy-student-${freshChildCounter}`;
 
+  db.insert(legacyUsers)
+    .values({ id: legacyParentId, name: `Fresh Parent ${freshChildCounter}`, email, passwordHash: 'x', role: 'parent' })
+    .run();
+  db.insert(legacyStudents)
+    .values({
+      id: legacyStudentId,
+      name: `طالب اختبار ${freshChildCounter}`,
+      grade: 'الأول',
+      avatar: 'https://example.test/avatar.png',
+      schoolId: admin.schoolId!,
+      schoolName: 'test',
+      parentId: legacyParentId,
+      parentName: `Fresh Parent ${freshChildCounter}`,
+      parentPhone: `+968 9900 ${String(freshChildCounter).padStart(4, '0')}`,
+      busId: bus.id,
+      busNumber: 'test',
+      pickupLat: 23.6,
+      pickupLng: 58.4,
+      pickupAddress: 'test',
+      pickupNameAr: 'test',
+      pickupTimePlanned: '06:00',
+      seatNumber: '01A',
+    })
+    .run();
   db.insert(students)
     .values({
       id: crypto.randomUUID(),
@@ -74,27 +101,26 @@ function createFreshAuthorizedChild() {
       pickupLat: 23.6,
       pickupLng: 58.4,
       pickupAddress: 'test',
-      parentPhone: phone,
+      legacyStudentId,
     })
     .run();
   db.insert(users).values({ id: crypto.randomUUID(), schoolId: admin.schoolId, name: `Fresh Parent ${freshChildCounter}`, email, passwordHash: 'x', role: 'parent' }).run();
-  (DEMO_PARENT_PHONE_BY_EMAIL as Record<string, string>)[email] = phone;
 
   const parentUser = userRepository.findByEmail(email)!;
   const student = resolveAuthorizedStudents(parentUser)[0];
   return { parentUser, student };
 }
 
-describe('ParentAccessService.resolveAuthorizedStudents — the entire DEMO-ONLY identity boundary (spec §3/§4)', () => {
-  it('the seeded demo parent resolves to exactly the students seeded with the matching demo phone', () => {
+describe('ParentAccessService.resolveAuthorizedStudents — the real legacy-FK identity bridge (spec §3/§4/§7)', () => {
+  it('the seeded demo parent resolves to exactly the students whose legacy record carries a real parentId link to them', () => {
     const authorized = resolveAuthorizedStudents(parentAUser());
     expect(authorized.length).toBeGreaterThan(0);
     for (const s of authorized) {
-      expect(s.parentPhone).toBe(DEMO_PARENT_PHONE_BY_EMAIL['parent@masara.om']);
+      expect(s.legacyStudentId).not.toBeNull();
     }
   });
 
-  it('an email with no entry in the demo map resolves to zero students — never everyone, never a fallback', () => {
+  it('an email with no matching legacy parent resolves to zero students — never everyone, never a fallback', () => {
     const admin = userRepository.findByEmail('admin@masara.om')!;
     expect(resolveAuthorizedStudents(admin).length).toBe(0);
   });

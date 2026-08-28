@@ -88,9 +88,25 @@ export const legacyBusRepository = {
     return legacyBusRepository.findById(id);
   },
 
-  /** Phase 8B — the ownership assignment Phase 7K deliberately left unbuilt ("no assignment mechanism exists"). Caller (server.ts route) is responsible for validating driverId resolves to an active legacy_users row with role='driver' before calling this — this method performs the write only. */
-  updateDriverId: (id: string, driverId: string | null): LegacyBusView | undefined => {
-    db.update(legacyBuses).set({ driverId, updatedAt: new Date() }).where(eq(legacyBuses.id, id)).run();
+  /**
+   * Phase 8B — the ownership assignment Phase 7K deliberately left unbuilt ("no assignment mechanism exists").
+   * Caller (server.ts route) is responsible for validating driverId resolves to an active legacy_users row with
+   * role='driver' before calling this — this method performs the write only.
+   *
+   * Phase 10 UAT fix — the exact same class of P0 already found and fixed for
+   * student/parent assignment (see legacyStudentRepository.updateParentId): this wrote
+   * `driverId` alone, leaving `driverName` — the field every UI surface actually displays —
+   * pointing at whichever driver the bus last had. Found live: bus-102's `driverId` pointed
+   * at a real employee (مجدي الذيابي) while `driverName` still showed a completely different
+   * person, so anyone contacting "the driver" via the displayed name/phone would have reached
+   * the wrong human. `driverName` now always follows the authoritative `driverId` link when one
+   * is set. Unassigning (`driverId: null`) intentionally leaves the last-known name/phone on
+   * file rather than blanking real contact information, same as the parent-side fix.
+   */
+  updateDriverId: (id: string, driverId: string | null, driverName?: string): LegacyBusView | undefined => {
+    const patch: { driverId: string | null; updatedAt: Date; driverName?: string } = { driverId, updatedAt: new Date() };
+    if (driverId !== null && driverName) patch.driverName = driverName;
+    db.update(legacyBuses).set(patch).where(eq(legacyBuses.id, id)).run();
     return legacyBusRepository.findById(id);
   },
 

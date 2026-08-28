@@ -29,7 +29,6 @@ import {
   legacyBuses,
   legacyStudents,
 } from '../schema';
-import { DEMO_PARENT_PHONE_BY_EMAIL } from '../../server/domain/parentAccessContract';
 import { normalizeContactValue } from '../../server/services/ContactNormalization';
 import { userContactRepository } from '../../server/repositories/userContactRepository';
 
@@ -65,17 +64,13 @@ function clearAll() {
   // constraint violation (foreign_keys=ON). Same recurring "new table
   // forgotten by clearAll" bug class flagged throughout this function —
   // guarded again here.
-  db.delete(legacyStudents).run();
-  db.delete(legacyBuses).run();
-  // Phase 7H: legacy_sessions/legacy_login_attempts stayed deliberately
-  // unconstrained against legacy_users (see that table's own schema
-  // comment), so only legacy_buses/legacy_students above actually gate
-  // this delete. legacy_users IS seed data (unlike those two, which are
-  // pure runtime state seed.ts never touches) and was the exact "new
-  // table forgotten by clearAll" bug this comment block already warns
-  // about, caught by tests/database/seedIdempotency.test.ts exactly as
-  // designed.
-  db.delete(legacyUsers).run();
+  //
+  // Phase 13: governed `students` now carries a real FK
+  // (legacyStudentId -> legacy_students.id), so this whole legacy block
+  // must additionally move to AFTER the governed `students` delete below
+  // — the reverse of the ordering that was correct before this column
+  // existed. Kept right before legacy_users for the same reason the
+  // Phase 7H comment below already explains.
   db.delete(userContacts).run();
   db.delete(notifications).run();
   db.delete(etaAccuracyObservations).run();
@@ -94,6 +89,17 @@ function clearAll() {
   db.delete(routeStops).run();
   db.delete(routes).run();
   db.delete(students).run();
+  // Phase 7H: legacy_sessions/legacy_login_attempts stayed deliberately
+  // unconstrained against legacy_users (see that table's own schema
+  // comment), so only legacy_buses/legacy_students below actually gate
+  // this delete. legacy_users IS seed data (unlike those two, which are
+  // pure runtime state seed.ts never touches) and was the exact "new
+  // table forgotten by clearAll" bug this comment block already warns
+  // about, caught by tests/database/seedIdempotency.test.ts exactly as
+  // designed.
+  db.delete(legacyStudents).run();
+  db.delete(legacyBuses).run();
+  db.delete(legacyUsers).run();
   db.delete(buses).run();
   db.delete(drivers).run();
   db.delete(users).run();
@@ -412,15 +418,9 @@ export function seed() {
   ];
   db.insert(routeStops).values(stopDefs).run();
 
-  // Phase 5A — the first two students on bus 101 are the demo parent's
-  // children (see server/domain/parentAccessContract.ts's header comment
-  // for the full DEMO-ONLY rationale). Every other student keeps the
-  // original generic auto-generated parentName/parentPhone, unchanged.
-  const demoParentPhone = DEMO_PARENT_PHONE_BY_EMAIL['parent@masara.om'];
   const studentDefs = Array.from({ length: 40 }, (_, i) => {
     const bus = busDefs[i % 2]; // pilot fleet: alternate the two active buses (bus 3 is a spare, no assigned students)
     const stop = stopDefs.filter((s) => (i % 2 === 0 ? s.routeId === routeDefs[0].id : s.routeId === routeDefs[1].id))[i % 2];
-    const isDemoParentChild = i === 0 || i === 1;
     return {
       id: crypto.randomUUID(),
       schoolId: school.id,
@@ -431,11 +431,55 @@ export function seed() {
       pickupLng: stop.lng + (i % 5) * 0.0008,
       pickupAddress: stop.name,
       seatNumber: String((i % bus.capacity) + 1),
-      parentName: isDemoParentChild ? 'أحمد بن سيف البوسعيدي' : parentName(i),
-      parentPhone: isDemoParentChild ? demoParentPhone : `+968 9${String(100000 + i * 37).slice(0, 6)}`,
+      parentName: parentName(i),
+      parentPhone: `+968 9${String(100000 + i * 37).slice(0, 6)}`,
     };
   });
-  db.insert(students).values(studentDefs).run();
+
+  // Phase 13 — the real parent<->student identity bridge (spec §4/§7/§8).
+  // std-1/std-2 (seedLegacyStudents above) are the only two legacy
+  // students with a real, tested ownership FK (parentId: 'u-1', the
+  // legacy row for parent@masara.om). These two governed rows are their
+  // deterministic governed-side counterparts, linked via the new
+  // `legacyStudentId` column (database/schema.ts) — NOT by name or phone.
+  // Placed on the real active bus/route (busDefs[0]/stopDefs for route 0)
+  // so ensureJourneysForTrip (JourneyService.ts) auto-creates a real
+  // scheduled journey for tripDefs[0] with no separate journey seeding
+  // needed. Display name/grade/seat mirror the legacy record for human
+  // readability only — the FK, not the name match, is what makes these
+  // "the same student".
+  const demoParentStudentDefs = [
+    {
+      id: crypto.randomUUID(),
+      schoolId: school.id,
+      name: 'مريم بنت أحمد البوسعيدية',
+      grade: GRADES[4],
+      busId: busDefs[0].id,
+      pickupLat: stopDefs[0].lat,
+      pickupLng: stopDefs[0].lng,
+      pickupAddress: stopDefs[0].name,
+      seatNumber: '04A',
+      parentName: 'أحمد بن سيف البوسعيدي',
+      parentPhone: '+968 9111 2233',
+      legacyStudentId: 'std-1',
+    },
+    {
+      id: crypto.randomUUID(),
+      schoolId: school.id,
+      name: 'الخليل بن أحمد البوسعيدي',
+      grade: GRADES[1],
+      busId: busDefs[0].id,
+      pickupLat: stopDefs[0].lat,
+      pickupLng: stopDefs[0].lng,
+      pickupAddress: stopDefs[0].name,
+      seatNumber: '04B',
+      parentName: 'أحمد بن سيف البوسعيدي',
+      parentPhone: '+968 9111 2233',
+      legacyStudentId: 'std-2',
+    },
+  ];
+  db.insert(students).values([...studentDefs, ...demoParentStudentDefs]).run();
+  studentDefs.push(...demoParentStudentDefs);
 
   const now = new Date();
   const tripDefs = [

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuthenticatedUser } from '../services/authz';
+import { requireAuthenticatedUser, requireVerifiedEmail } from '../services/authz';
 import {
   listContactsForUser,
   createContact,
@@ -27,6 +27,13 @@ import {
 // one, and "keep the API minimal" / "do not create a generic admin
 // mutation API unless genuinely needed" both argue against building one
 // speculatively.
+//
+// Phase 11 SECURITY FIX — "resolved entirely from their session email" above
+// used to mean the client-CLAIMED email in a query/body field, which was
+// never actually verified — a caller could manage ANY other user's contact
+// channels merely by naming their email. Identity now comes from a real,
+// verified session token (`requireVerifiedEmail`) first, and only that
+// verified email is passed into `requireAuthenticatedUser`.
 export const contactRouter = Router();
 
 function handleContactError(err: unknown, res: import('express').Response) {
@@ -49,13 +56,17 @@ function handleVerificationError(err: unknown, res: import('express').Response) 
 }
 
 contactRouter.get('/api/me/contacts', (req, res) => {
-  const guard = requireAuthenticatedUser(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireAuthenticatedUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json(listContactsForUser(guard.user));
 });
 
 contactRouter.post('/api/me/contacts', (req, res) => {
-  const guard = requireAuthenticatedUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireAuthenticatedUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     res.status(201).json(createContact(guard.user, { channel: req.body?.channel, value: req.body?.value }));
@@ -65,7 +76,9 @@ contactRouter.post('/api/me/contacts', (req, res) => {
 });
 
 contactRouter.patch('/api/me/contacts/:id', (req, res) => {
-  const guard = requireAuthenticatedUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireAuthenticatedUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     res.json(updateContact(guard.user, req.params.id, { value: req.body?.value, enabled: req.body?.enabled }));
@@ -75,7 +88,9 @@ contactRouter.patch('/api/me/contacts/:id', (req, res) => {
 });
 
 contactRouter.delete('/api/me/contacts/:id', (req, res) => {
-  const guard = requireAuthenticatedUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireAuthenticatedUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     deleteContact(guard.user, req.params.id);
@@ -92,7 +107,9 @@ contactRouter.delete('/api/me/contacts/:id', (req, res) => {
 // value — request returns a non-delivery status DTO, confirm returns the
 // same masked ContactView every other mutation already returns.
 contactRouter.post('/api/me/contacts/:id/verify/request', (req, res) => {
-  const guard = requireAuthenticatedUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireAuthenticatedUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     res.status(202).json(requestVerification(guard.user, req.params.id));
@@ -102,7 +119,9 @@ contactRouter.post('/api/me/contacts/:id/verify/request', (req, res) => {
 });
 
 contactRouter.post('/api/me/contacts/:id/verify/confirm', (req, res) => {
-  const guard = requireAuthenticatedUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireAuthenticatedUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     res.json(confirmVerification(guard.user, req.params.id, req.body?.code));

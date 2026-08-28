@@ -415,11 +415,20 @@ describe('Authorization on the approval/execution path — unchanged guard, no n
 describe('Client-controlled input rejection — structural, not just convention', () => {
   const routesSource = fs.readFileSync(path.resolve(__dirname, '../../server/routes/agentRoutes.ts'), 'utf8');
 
-  it('the approve route reads only :id (URL param) and userEmail (body) — never recipient/content/evidence fields', () => {
+  // Phase 11 SECURITY FIX — the approve route (and every governed route) no
+  // longer reads identity from req.body/req.query at all: a client-supplied
+  // `userEmail` was a full authentication bypass (see authz.ts's header
+  // comment and docs/PHASE_11_SECURITY_AND_IDENTITY_HARDENING_REPORT.md).
+  // Identity now comes exclusively from a verified session token
+  // (requireVerifiedEmail(req.headers.authorization)) — an even stronger
+  // version of "the client cannot supply a fake identity" than the original
+  // test's own intent.
+  it('the approve route reads only :id (URL param) and a verified session — never a client-supplied userEmail, recipient/content/evidence field', () => {
     const start = routesSource.indexOf("agentRouter.post('/api/recommendations/:id/approve'");
     const block = routesSource.slice(start, routesSource.indexOf('\n});', start));
     expect(block).not.toMatch(/req\.body\.(recipient|body|content|severity|confidence|studentId|busId|routeId|evidence|action)/);
-    expect(block).toMatch(/req\.body\?\.userEmail/);
+    expect(block).not.toMatch(/req\.(body|query)\??\.userEmail/);
+    expect(block).toMatch(/requireVerifiedEmail\(req\.headers\.authorization\)/);
   });
 
   it('notification content is derived entirely from the already-approved recommendation row (rec.title/rec.problem), never from the approve request body', () => {

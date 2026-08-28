@@ -116,7 +116,7 @@ export const ApprovalCenter: React.FC<ApprovalCenterProps> = ({ isOpen, onClose,
     setLoading(true);
     setError(null);
     try {
-      const all = await listRecommendations(currentUser.email);
+      const all = await listRecommendations(currentUser.sessionToken);
       setRecommendations(all);
       if (selected) {
         const updated = all.find((r) => r.id === selected.id);
@@ -213,19 +213,19 @@ function RecommendationDetail({ rec, currentUser, onClose, onDecided }: { rec: A
 
   useEffect(() => {
     if (!currentUser) return;
-    const userEmail = currentUser.email;
+    const sessionToken = currentUser.sessionToken;
     let cancelled = false;
     (async () => {
       try {
-        const [t, a] = await Promise.all([getTrip(rec.tripId, userEmail), getRecommendationAudit(rec.id, userEmail)]);
+        const [t, a] = await Promise.all([getTrip(rec.tripId, sessionToken), getRecommendationAudit(rec.id, sessionToken)]);
         if (cancelled) return;
         setTrip(t);
         setAudit(a);
         const [b, r, p, v] = await Promise.all([
-          getGovernedBus(t.busId, userEmail).catch(() => null),
-          getGovernedRoute(t.routeId, userEmail).catch(() => null),
-          rec.predictionId ? getPrediction(rec.predictionId, userEmail).catch(() => null) : Promise.resolve(null),
-          getRecommendationVerification(rec.id, userEmail).catch(() => null)
+          getGovernedBus(t.busId, sessionToken).catch(() => null),
+          getGovernedRoute(t.routeId, sessionToken).catch(() => null),
+          rec.predictionId ? getPrediction(rec.predictionId, sessionToken).catch(() => null) : Promise.resolve(null),
+          getRecommendationVerification(rec.id, sessionToken).catch(() => null)
         ]);
         if (cancelled) return;
         setBus(b);
@@ -233,7 +233,7 @@ function RecommendationDetail({ rec, currentUser, onClose, onDecided }: { rec: A
         setPrediction(p);
         setVerification(v);
         if (rec.action === 'CHANGE_ROUTE' && rec.targetId) {
-          getGovernedRoute(rec.targetId, userEmail).then((tr) => !cancelled && setTargetRoute(tr)).catch(() => {});
+          getGovernedRoute(rec.targetId, sessionToken).then((tr) => !cancelled && setTargetRoute(tr)).catch(() => {});
         }
       } catch {
         // Detail context is supplementary — the decision buttons still work without it.
@@ -243,7 +243,7 @@ function RecommendationDetail({ rec, currentUser, onClose, onDecided }: { rec: A
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rec.id, rec.tripId, rec.predictionId, rec.action, rec.targetId, currentUser?.email]);
+  }, [rec.id, rec.tripId, rec.predictionId, rec.action, rec.targetId, currentUser?.sessionToken]);
 
   const isPending = rec.status === 'pending';
   const isExpired = rec.status === 'pending' && !!rec.expiresAt && new Date(rec.expiresAt).getTime() < Date.now();
@@ -253,7 +253,7 @@ function RecommendationDetail({ rec, currentUser, onClose, onDecided }: { rec: A
     setBusy(true);
     setActionError(null);
     try {
-      await approveRecommendationApi(rec.id, currentUser.email);
+      await approveRecommendationApi(rec.id, currentUser.sessionToken);
       setShowConfirm(false);
       onDecided();
     } catch (err) {
@@ -269,7 +269,7 @@ function RecommendationDetail({ rec, currentUser, onClose, onDecided }: { rec: A
     setBusy(true);
     setActionError(null);
     try {
-      await rejectRecommendationApi(rec.id, currentUser.email, rejectReason.trim());
+      await rejectRecommendationApi(rec.id, currentUser.sessionToken, rejectReason.trim());
       onDecided();
     } catch (err) {
       setActionError((err as Error).message);
@@ -283,7 +283,7 @@ function RecommendationDetail({ rec, currentUser, onClose, onDecided }: { rec: A
     setBusy(true);
     setActionError(null);
     try {
-      await requestReviewApi(rec.id, currentUser.email);
+      await requestReviewApi(rec.id, currentUser.sessionToken);
       onDecided();
     } catch (err) {
       setActionError((err as Error).message);

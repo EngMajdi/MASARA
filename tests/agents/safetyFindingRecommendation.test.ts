@@ -434,10 +434,14 @@ describe('Source-scan governance guards — Phase 7C cannot bypass the governanc
     for (const source of [adapterSource, agentSource]) {
       expect(source).not.toMatch(/req\.(body|query)/);
     }
-    // The route itself still reads only tripId + userEmail from the body — unchanged surface.
+    // Phase 11 SECURITY FIX — the route no longer reads identity from the body
+    // at all (a client-supplied userEmail was a full authentication bypass —
+    // see authz.ts's header comment); identity now comes exclusively from a
+    // verified session token (requireVerifiedEmail(req.headers.authorization)).
     const postBlock = agentRoutesSource.slice(agentRoutesSource.indexOf("agentRouter.post('/api/agent/run'"));
     const handlerBlock = postBlock.slice(0, postBlock.indexOf('\n});') + 4);
-    expect(handlerBlock).toMatch(/req\.body\?\.userEmail/);
+    expect(handlerBlock).toMatch(/requireVerifiedEmail\(req\.headers\.authorization\)/);
+    expect(handlerBlock).not.toMatch(/req\.(body|query)\??\.userEmail/);
     expect(handlerBlock).toMatch(/const \{ tripId \} = req\.body/);
     expect(handlerBlock).not.toMatch(/req\.body\.(confidence|severity|delaySeconds|action|findingType|classification)/);
   });

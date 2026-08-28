@@ -18,7 +18,6 @@ import { userContactRepository, isUniqueConstraintError } from '../../server/rep
 import { requireAuthenticatedUser } from '../../server/services/authz';
 import { userRepository } from '../../server/repositories/userRepository';
 import { resolveAuthorizedStudents } from '../../server/services/ParentAccessService';
-import { DEMO_PARENT_PHONE_BY_EMAIL } from '../../server/domain/parentAccessContract';
 import { processPendingNotificationsForParent, getNotificationsForParent } from '../../server/services/NotificationService';
 import { journeyRepository } from '../../server/repositories/journeyRepository';
 import { tripRepository } from '../../server/repositories/tripRepository';
@@ -337,12 +336,12 @@ describe('Notification regression — Phase 5B/5C/5D behavior is unchanged by th
     expect(notifs[0].status).toBe('SENT');
   });
 
-  it('ParentAccessService.resolveAuthorizedStudents behavior is unchanged — still governed by the Phase 5A demo map, not the new contact model', () => {
+  it('ParentAccessService.resolveAuthorizedStudents behavior is unchanged — still governed by the real legacy-FK identity bridge, not the new contact model', () => {
     const parentUser = userRepository.findByEmail('parent@masara.om')!;
     const students1 = resolveAuthorizedStudents(parentUser);
     const students2 = resolveAuthorizedStudents(parentUser);
     expect(students1.map((s) => s.id)).toEqual(students2.map((s) => s.id));
-    expect(students1.every((s) => s.parentPhone === DEMO_PARENT_PHONE_BY_EMAIL['parent@masara.om'])).toBe(true);
+    expect(students1.every((s) => s.legacyStudentId !== null)).toBe(true);
   });
 });
 

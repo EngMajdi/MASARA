@@ -2,9 +2,8 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { db } from '../../database/client';
-import { users, students } from '../../database/schema';
+import { users, students, legacyUsers, legacyStudents } from '../../database/schema';
 import { userRepository } from '../../server/repositories/userRepository';
-import { DEMO_PARENT_PHONE_BY_EMAIL } from '../../server/domain/parentAccessContract';
 import { userContactRepository } from '../../server/repositories/userContactRepository';
 import { createContact, updateContact } from '../../server/services/UserContactService';
 import {
@@ -52,9 +51,34 @@ function createFreshAuthorizedChild() {
   freshChildCounter += 1;
   const admin = userRepository.findByEmail('admin@masara.om')!;
   const bus = busRepository.findAll()[0];
-  const phone = `+968 9800 ${String(freshChildCounter).padStart(4, '0')}`;
   const email = `contact-verify-fresh-parent-${freshChildCounter}-test@masara.om`;
+  const legacyParentId = `test-cv-legacy-parent-${freshChildCounter}`;
+  const legacyStudentId = `test-cv-legacy-student-${freshChildCounter}`;
 
+  db.insert(legacyUsers)
+    .values({ id: legacyParentId, name: `Contact Verify Fresh Parent ${freshChildCounter}`, email, passwordHash: 'x', role: 'parent' })
+    .run();
+  db.insert(legacyStudents)
+    .values({
+      id: legacyStudentId,
+      name: `طالب اختبار توثيق ${freshChildCounter}`,
+      grade: 'الأول',
+      avatar: 'https://example.test/avatar.png',
+      schoolId: admin.schoolId!,
+      schoolName: 'test',
+      parentId: legacyParentId,
+      parentName: `Contact Verify Fresh Parent ${freshChildCounter}`,
+      parentPhone: `+968 9800 ${String(freshChildCounter).padStart(4, '0')}`,
+      busId: bus.id,
+      busNumber: 'test',
+      pickupLat: 23.6,
+      pickupLng: 58.4,
+      pickupAddress: 'test',
+      pickupNameAr: 'test',
+      pickupTimePlanned: '06:00',
+      seatNumber: '01A',
+    })
+    .run();
   db.insert(students)
     .values({
       id: crypto.randomUUID(),
@@ -65,11 +89,10 @@ function createFreshAuthorizedChild() {
       pickupLat: 23.6,
       pickupLng: 58.4,
       pickupAddress: 'test',
-      parentPhone: phone,
+      legacyStudentId,
     })
     .run();
   db.insert(users).values({ id: crypto.randomUUID(), schoolId: admin.schoolId, name: `Contact Verify Fresh Parent ${freshChildCounter}`, email, passwordHash: 'x', role: 'parent' }).run();
-  (DEMO_PARENT_PHONE_BY_EMAIL as Record<string, string>)[email] = phone;
 
   const parentUser = userRepository.findByEmail(email)!;
   const student = resolveAuthorizedStudents(parentUser)[0];

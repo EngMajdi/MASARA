@@ -15,13 +15,13 @@ import type { TabItem } from './ui';
  * never a real number, on the very first thing an admin sees. Now reads the
  * same `listRecommendations` source the Approval Center itself uses.
  */
-function usePendingApprovalsCount(userEmail: string | undefined) {
+function usePendingApprovalsCount(sessionToken: string | undefined) {
   const [count, setCount] = useState<number | null>(null);
   useEffect(() => {
-    if (!userEmail) return;
+    if (!sessionToken) return;
     let cancelled = false;
     const load = () =>
-      listRecommendations(userEmail, 'pending')
+      listRecommendations(sessionToken, 'pending')
         .then((list) => !cancelled && setCount(list.length))
         .catch(() => !cancelled && setCount(null));
     load();
@@ -30,24 +30,24 @@ function usePendingApprovalsCount(userEmail: string | undefined) {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [userEmail]);
+  }, [sessionToken]);
   return count;
 }
 
 /** Real fleet current-location projection, polled (docs/LIVE_TRACKING_ARCHITECTURE_AUDIT.md). */
-function useFleetLocations(userEmail: string | undefined) {
+function useFleetLocations(sessionToken: string | undefined) {
   const [locations, setLocations] = useState<CurrentLocation[]>([]);
   useEffect(() => {
-    if (!userEmail) return;
+    if (!sessionToken) return;
     let cancelled = false;
-    const load = () => getFleetCurrentLocations(userEmail).then((data) => !cancelled && setLocations(data)).catch(() => !cancelled && setLocations([]));
+    const load = () => getFleetCurrentLocations(sessionToken).then((data) => !cancelled && setLocations(data)).catch(() => !cancelled && setLocations([]));
     load();
     const interval = setInterval(load, 5000);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [userEmail]);
+  }, [sessionToken]);
   return locations;
 }
 import {
@@ -76,7 +76,8 @@ import {
   TrendingUp,
   Clock,
   RotateCcw,
-  Send
+  Send,
+  Settings2
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -100,6 +101,7 @@ interface AdminAIAgentPortalProps {
   currentUser: AuthUser | null;
   onOpenDataManagement: () => void;
   onOpenEmployeeManagement: () => void;
+  onOpenFleetSetup: () => void;
   onOpenApprovalCenter: () => void;
   onOpenSimulationCenter: () => void;
   onOpenOperationsFeed: () => void;
@@ -131,17 +133,18 @@ export const AdminAIAgentPortal: React.FC<AdminAIAgentPortalProps> = ({
   currentUser,
   onOpenDataManagement,
   onOpenEmployeeManagement,
+  onOpenFleetSetup,
   onOpenApprovalCenter,
   onOpenSimulationCenter,
   onOpenOperationsFeed
 }) => {
   const [section, setSection] = useState<'operations' | 'people' | 'transport' | 'ai'>('operations');
-  const fleetLocations = useFleetLocations(currentUser?.email);
+  const fleetLocations = useFleetLocations(currentUser?.sessionToken);
   // Governed bus UUIDs never match legacy `Bus.id` — only `busNumber` does
   // (see governedBusResolver.ts / docs/LIVE_TRACKING_ARCHITECTURE_AUDIT.md).
   const governedFleetBusIds = useMemo(() => fleetLocations.map((l) => l.busId), [fleetLocations]);
-  const governedBusNumbers = useGovernedBusNumbers(governedFleetBusIds, currentUser?.email);
-  const pendingApprovals = usePendingApprovalsCount(currentUser?.email);
+  const governedBusNumbers = useGovernedBusNumbers(governedFleetBusIds, currentUser?.sessionToken);
+  const pendingApprovals = usePendingApprovalsCount(currentUser?.sessionToken);
 
   // AI section state
   const [trafficInput] = useState('ازدحام مروري مرتفع عند مخرج حي القرم وشارع السلطان قابوس');
@@ -343,6 +346,14 @@ export const AdminAIAgentPortal: React.FC<AdminAIAgentPortalProps> = ({
             <div className="flex-1">
               <h3 className="font-bold text-sm text-text-primary">إدارة البيانات</h3>
               <p className="text-xs text-text-secondary">الطلاب، الحافلات، والمسارات المدرسية</p>
+            </div>
+          </Card>
+
+          <Card interactive onClick={onOpenFleetSetup} className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-primary-soft text-primary flex items-center justify-center shrink-0"><Settings2 className="w-5 h-5" /></div>
+            <div className="flex-1">
+              <h3 className="font-bold text-sm text-text-primary">إعداد التشغيل</h3>
+              <p className="text-xs text-text-secondary">إنشاء الحافلات والمسارات ونقاط التوقف والرحلات</p>
             </div>
           </Card>
 

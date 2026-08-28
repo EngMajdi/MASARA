@@ -38,7 +38,7 @@ export const AIOperationsFeed: React.FC<AIOperationsFeedProps> = ({ isOpen, onCl
     setLoading(true);
     setError(null);
     try {
-      const data = await listOperationsEvents({ category, limit: 100, userEmail: currentUser.email });
+      const data = await listOperationsEvents({ category, limit: 100, sessionToken: currentUser.sessionToken });
       setEvents(data);
     } catch (err) {
       setError((err as Error).message);
@@ -59,7 +59,7 @@ export const AIOperationsFeed: React.FC<AIOperationsFeedProps> = ({ isOpen, onCl
       setSelectedRec(null);
       return;
     }
-    getRecommendation(selected.recommendationId, currentUser.email).then(setSelectedRec).catch(() => setSelectedRec(null));
+    getRecommendation(selected.recommendationId, currentUser.sessionToken).then(setSelectedRec).catch(() => setSelectedRec(null));
   }, [selected, currentUser]);
 
   if (!isOpen) return null;

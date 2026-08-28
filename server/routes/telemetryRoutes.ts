@@ -8,7 +8,7 @@ import {
   type TelemetryIngestionPayload,
 } from '../services/TelemetryIngestionService';
 import { telemetryObservationRepository } from '../repositories/telemetryObservationRepository';
-import { requireTelemetryDevice, requireTelemetryReader, requireOperationalUser } from '../services/authz';
+import { requireTelemetryDevice, requireTelemetryReader, requireOperationalUser, requireVerifiedEmail } from '../services/authz';
 import { getCurrentLocation, listFleetCurrentLocations, type CurrentLocationView } from '../services/CurrentLocationProjectionService';
 
 // The telemetry ingestion boundary (Phase 4B §13) — one endpoint, one
@@ -28,6 +28,8 @@ function handleTelemetryError(err: unknown, res: Response) {
 }
 
 telemetryRouter.post('/api/telemetry/observations', (req, res) => {
+  // Device ingestion is its own, already-real authentication boundary (a
+  // device secret, not a user session) — untouched by the Phase 11 fix below.
   const guard = requireTelemetryDevice(req.headers.authorization);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
 
@@ -44,12 +46,22 @@ telemetryRouter.post('/api/telemetry/observations', (req, res) => {
   }
 });
 
+// Phase 11 SECURITY FIX (all routes below): identity now comes from a
+// verified session token (`requireVerifiedEmail`), never a client-supplied
+// `userEmail` query parameter — see authz.ts's header comment. This closes
+// the exact class of vulnerability the Phase 10 UAT found: GPS location is
+// sensitive transportation data and must never be readable by an
+// unauthenticated caller who merely knows/guesses a role's email.
+
 telemetryRouter.get('/api/telemetry/observations', (req, res) => {
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+
   const { busId, tripId, from, to, limit } = req.query;
   const busIdStr = typeof busId === 'string' ? busId : undefined;
   const tripIdStr = typeof tripId === 'string' ? tripId : undefined;
 
-  const guard = requireTelemetryReader(req.query.userEmail, { busId: busIdStr, tripId: tripIdStr });
+  const guard = requireTelemetryReader(identity.email, { busId: busIdStr, tripId: tripIdStr });
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
 
   const fromDate = typeof from === 'string' && !Number.isNaN(Date.parse(from)) ? new Date(from) : undefined;
@@ -98,16 +110,20 @@ function toPublicLocation(view: CurrentLocationView) {
 // every other fleet-wide operational summary (e.g. GET /api/operations/journeys).
 // Registered BEFORE the /:busId route so "fleet" is never parsed as a busId.
 telemetryRouter.get('/api/telemetry/current/fleet', (req, res) => {
-  const guard = requireOperationalUser(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json(listFleetCurrentLocations().map(toPublicLocation));
 });
 
 telemetryRouter.get('/api/telemetry/current/:busId', (req, res) => {
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
   // Authorization happens BEFORE any existence/data check (spec §15) — a
   // driver requesting another driver's bus gets the same 403 whether or
   // not that bus even has a current-location row yet.
-  const guard = requireTelemetryReader(req.query.userEmail, { busId: req.params.busId });
+  const guard = requireTelemetryReader(identity.email, { busId: req.params.busId });
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
 
   const location = getCurrentLocation(req.params.busId);

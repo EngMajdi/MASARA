@@ -14,7 +14,7 @@ import { DistributionAssistant } from './school/DistributionAssistant';
 import { BusDetailSheet } from './school/BusDetailSheet';
 import { Card, Metric, Badge, Tabs, MobileTabBar, EmptyState, Button } from './ui';
 import type { TabItem, Tone } from './ui';
-import { Bus as BusIcon, Users, Route as RouteIcon, AlertTriangle, CheckCircle2, Clock, Calendar, Search, Database, ShieldAlert, Home, ChevronDown, ChevronUp, Radar } from 'lucide-react';
+import { Bus as BusIcon, Users, Route as RouteIcon, AlertTriangle, CheckCircle2, Clock, Calendar, Search, Database, ShieldAlert, Home, ChevronDown, ChevronUp, Radar, Settings2 } from 'lucide-react';
 
 /** Same real ETA-derived arrival status used by the Bus Arrival Radar list and the Bus Detail Sheet — never fabricated, a bus absent from the fleet ETA response genuinely has no tracked trip yet. */
 function getArrivalInfo(bus: Bus, fleetEta: EtaEstimateView[], governedBusNumbers: Record<string, string>): { tone: Tone; label: string; etaMinutes: number | null } {
@@ -40,36 +40,36 @@ interface AttentionItem {
 }
 
 /** Real fleet ETA, polled — a bus absent from the response genuinely has no active tracked trip (never fabricated as "on time"). */
-function useFleetEta(userEmail: string | undefined) {
+function useFleetEta(sessionToken: string | undefined) {
   const [etas, setEtas] = useState<EtaEstimateView[]>([]);
   useEffect(() => {
-    if (!userEmail) return;
+    if (!sessionToken) return;
     let cancelled = false;
-    const load = () => getFleetEta(userEmail).then((data) => !cancelled && setEtas(data)).catch(() => !cancelled && setEtas([]));
+    const load = () => getFleetEta(sessionToken).then((data) => !cancelled && setEtas(data)).catch(() => !cancelled && setEtas([]));
     load();
     const interval = setInterval(load, 8000);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [userEmail]);
+  }, [sessionToken]);
   return etas;
 }
 
 /** Real fleet current-location projection, polled (docs/LIVE_TRACKING_ARCHITECTURE_AUDIT.md). */
-function useFleetLocations(userEmail: string | undefined) {
+function useFleetLocations(sessionToken: string | undefined) {
   const [locations, setLocations] = useState<CurrentLocation[]>([]);
   useEffect(() => {
-    if (!userEmail) return;
+    if (!sessionToken) return;
     let cancelled = false;
-    const load = () => getFleetCurrentLocations(userEmail).then((data) => !cancelled && setLocations(data)).catch(() => !cancelled && setLocations([]));
+    const load = () => getFleetCurrentLocations(sessionToken).then((data) => !cancelled && setLocations(data)).catch(() => !cancelled && setLocations([]));
     load();
     const interval = setInterval(load, 5000);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [userEmail]);
+  }, [sessionToken]);
   return locations;
 }
 
@@ -81,6 +81,7 @@ interface SchoolDashboardProps {
   currentUser: AuthUser | null;
   onOpenDataManagement: () => void;
   onOpenApprovalCenter: () => void;
+  onOpenFleetSetup: () => void;
 }
 
 const SECTIONS: TabItem[] = [
@@ -100,7 +101,7 @@ const greeting = () => (new Date().getHours() < 12 ? 'صباح الخير' : 'م
  * actually support), then the rest is organized into dedicated sections
  * instead of one long scroll of stacked cards.
  */
-export const SchoolDashboard: React.FC<SchoolDashboardProps> = ({ schools, students, buses, routes, currentUser, onOpenDataManagement, onOpenApprovalCenter }) => {
+export const SchoolDashboard: React.FC<SchoolDashboardProps> = ({ schools, students, buses, routes, currentUser, onOpenDataManagement, onOpenApprovalCenter, onOpenFleetSetup }) => {
   const [section, setSection] = useState<'today' | 'fleet' | 'students' | 'routes'>('today');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedGrade, setSelectedGrade] = useState('all');
@@ -108,14 +109,14 @@ export const SchoolDashboard: React.FC<SchoolDashboardProps> = ({ schools, stude
   const [selectedBusId, setSelectedBusId] = useState('bus-101');
   const [showGovernedDetail, setShowGovernedDetail] = useState(false);
   const [detailBusId, setDetailBusId] = useState<string | null>(null);
-  const fleetEta = useFleetEta(currentUser?.email);
-  const fleetLocations = useFleetLocations(currentUser?.email);
+  const fleetEta = useFleetEta(currentUser?.sessionToken);
+  const fleetLocations = useFleetLocations(currentUser?.sessionToken);
   // The telemetry/ETA services return GOVERNED bus UUIDs, which share no ID
   // with the legacy `Bus.id` this component otherwise works with — only
   // `busNumber` matches across both stores (see governedBusResolver.ts /
   // docs/LIVE_TRACKING_ARCHITECTURE_AUDIT.md's P0-2 note).
   const governedBusIds = useMemo(() => Array.from(new Set([...fleetEta.map((e) => e.busId), ...fleetLocations.map((l) => l.busId)])), [fleetEta, fleetLocations]);
-  const governedBusNumbers = useGovernedBusNumbers(governedBusIds, currentUser?.email);
+  const governedBusNumbers = useGovernedBusNumbers(governedBusIds, currentUser?.sessionToken);
 
   const selectedSchool = schools[0];
   const schoolStudents = selectedSchool ? students.filter((s) => s.schoolId === selectedSchool.id) : [];
@@ -232,7 +233,7 @@ export const SchoolDashboard: React.FC<SchoolDashboardProps> = ({ schools, stude
               <h2 className="text-sm font-bold text-text-primary mb-2">يحتاج انتباه</h2>
               <div className="space-y-2">
                 {attentionItems.map((item) => (
-                  <Card key={item.key} padding="sm" className="flex items-center gap-3 cursor-pointer hover:border-border-strong transition-colors" onClick={item.onClick}>
+                  <Card key={item.key} padding="sm" interactive className="flex items-center gap-3" onClick={item.onClick}>
                     <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${item.tone === 'danger' ? 'bg-danger-soft text-danger' : item.tone === 'warning' ? 'bg-warning-soft text-amber-600' : 'bg-info-soft text-sky-600'}`}>
                       {item.icon}
                     </div>
@@ -255,7 +256,7 @@ export const SchoolDashboard: React.FC<SchoolDashboardProps> = ({ schools, stude
               {buses.map((bus) => {
                 const arrival = getArrivalInfo(bus, fleetEta, governedBusNumbers);
                 return (
-                  <Card key={bus.id} padding="sm" className="flex items-center justify-between gap-3 cursor-pointer hover:border-border-strong transition-colors" onClick={() => setDetailBusId(bus.id)}>
+                  <Card key={bus.id} padding="sm" interactive className="flex items-center justify-between gap-3" onClick={() => setDetailBusId(bus.id)}>
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="w-9 h-9 rounded-lg bg-primary-soft text-primary flex items-center justify-center shrink-0">
                         <BusIcon className="w-4 h-4" />
@@ -276,6 +277,10 @@ export const SchoolDashboard: React.FC<SchoolDashboardProps> = ({ schools, stude
 
       {section === 'fleet' && (
         <div className="space-y-5">
+          <Button variant="secondary" icon={<Settings2 className="w-4 h-4" />} onClick={onOpenFleetSetup} fullWidth>
+            إعداد التشغيل (حافلات، مسارات، رحلات)
+          </Button>
+
           <LiveRadar
             mode="fleet"
             title="رادار الأسطول المباشر (GPS Live Radar)"
@@ -299,7 +304,7 @@ export const SchoolDashboard: React.FC<SchoolDashboardProps> = ({ schools, stude
               {buses.map((bus) => {
                 const status = { idle: 'في الموقف', en_route_pickup: 'في مسار الانطلاق', en_route_school: 'في الطريق للمدرسة', returning: 'في طريق العودة', maintenance: 'تحت الصيانة' }[bus.status];
                 return (
-                  <Card key={bus.id} padding="sm" className="flex items-center justify-between gap-3 cursor-pointer hover:border-border-strong transition-colors" onClick={() => setDetailBusId(bus.id)}>
+                  <Card key={bus.id} padding="sm" interactive className="flex items-center justify-between gap-3" onClick={() => setDetailBusId(bus.id)}>
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="w-9 h-9 rounded-lg bg-primary-soft text-primary flex items-center justify-center shrink-0">
                         <BusIcon className="w-4 h-4" />
@@ -315,7 +320,7 @@ export const SchoolDashboard: React.FC<SchoolDashboardProps> = ({ schools, stude
             </div>
           </div>
 
-          {currentUser?.email && (
+          {currentUser?.sessionToken && (
             <div>
               <button onClick={() => setShowGovernedDetail((v) => !v)} className="w-full flex items-center justify-between text-sm font-bold text-text-secondary py-2">
                 <span className="flex items-center gap-1.5">تفاصيل تشغيلية إضافية</span>
@@ -323,18 +328,18 @@ export const SchoolDashboard: React.FC<SchoolDashboardProps> = ({ schools, stude
               </button>
               {showGovernedDetail && (
                 <div className="space-y-4 animate-fade-in">
-                  <SchoolJourneyOperationsPanel userEmail={currentUser.email} />
+                  <SchoolJourneyOperationsPanel sessionToken={currentUser.sessionToken} />
                   <Card>
                     <h3 className="font-bold text-sm text-text-primary mb-3">مواقع الأسطول الحالية</h3>
-                    <CurrentLocationPanel userEmail={currentUser.email} scope={{ type: 'fleet' }} />
+                    <CurrentLocationPanel sessionToken={currentUser.sessionToken} scope={{ type: 'fleet' }} />
                   </Card>
                   <Card>
                     <h3 className="font-bold text-sm text-text-primary mb-3">تقديرات وقت الوصول</h3>
-                    <EtaPanel userEmail={currentUser.email} scope={{ type: 'fleet' }} />
+                    <EtaPanel sessionToken={currentUser.sessionToken} scope={{ type: 'fleet' }} />
                   </Card>
                   <Card>
                     <h3 className="font-bold text-sm text-text-primary mb-3">دقة تقديرات الوصول</h3>
-                    <EtaAccuracyPanel userEmail={currentUser.email} />
+                    <EtaAccuracyPanel sessionToken={currentUser.sessionToken} />
                   </Card>
                 </div>
               )}

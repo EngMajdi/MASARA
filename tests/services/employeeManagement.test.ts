@@ -116,6 +116,22 @@ describe('Ownership assignment repository primitives — the gap Phase 7K delibe
     expect(legacyBusRepository.findById('bus-102')?.driverId).toBeNull();
   });
 
+  it('Phase 10 UAT fix — assigning a driver keeps driverName in sync with the linked account, so the driver shown never contradicts who is actually assigned', () => {
+    const before = legacyBusRepository.findById('bus-102');
+    expect(before?.driverName).not.toBe('الكابتن سعيد بن حمد البوسعيدي');
+
+    legacyBusRepository.updateDriverId('bus-102', 'u-2', 'الكابتن سعيد بن حمد البوسعيدي');
+    const assigned = legacyBusRepository.findById('bus-102');
+    expect(assigned?.driverId).toBe('u-2');
+    expect(assigned?.driverName).toBe('الكابتن سعيد بن حمد البوسعيدي');
+
+    // Unassigning leaves the last-known driver name on file rather than blanking real contact info.
+    legacyBusRepository.updateDriverId('bus-102', null);
+    const unassigned = legacyBusRepository.findById('bus-102');
+    expect(unassigned?.driverId).toBeNull();
+    expect(unassigned?.driverName).toBe('الكابتن سعيد بن حمد البوسعيدي');
+  });
+
   it('legacyStudentRepository.updateParentId assigns and unassigns', () => {
     const before = legacyStudentRepository.findById('std-3');
     expect(before?.parentId).toBeNull(); // seeded unassigned, per Phase 7K's seed comment

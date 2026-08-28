@@ -78,11 +78,21 @@ describe('The projection is server-derived only — no write endpoint exists (sp
   });
 
   it('the fleet endpoint is gated by requireOperationalUser and the single-bus endpoint by requireTelemetryReader', () => {
-    const fleetBlock = telemetryRoutesSource.slice(telemetryRoutesSource.indexOf("'/api/telemetry/current/fleet'"));
-    expect(fleetBlock.slice(0, fleetBlock.indexOf('});'))).toMatch(/requireOperationalUser\(/);
+    // Phase 11 SECURITY FIX — every governed route now resolves a verified
+    // identity from the caller's real session token FIRST
+    // (requireVerifiedEmail), then passes that verified email into the
+    // existing role guard below — see authz.ts's header comment. A fixed
+    // 400-char window (rather than the first literal "});") is used because
+    // the new identity check's own early-return line itself contains "});".
+    const fleetStart = telemetryRoutesSource.indexOf("'/api/telemetry/current/fleet'");
+    const fleetBlock = telemetryRoutesSource.slice(fleetStart, fleetStart + 400);
+    expect(fleetBlock).toMatch(/requireVerifiedEmail\(/);
+    expect(fleetBlock).toMatch(/requireOperationalUser\(/);
 
-    const singleBlock = telemetryRoutesSource.slice(telemetryRoutesSource.indexOf("'/api/telemetry/current/:busId'"));
-    expect(singleBlock.slice(0, singleBlock.indexOf('});'))).toMatch(/requireTelemetryReader\(/);
+    const singleStart = telemetryRoutesSource.indexOf("'/api/telemetry/current/:busId'");
+    const singleBlock = telemetryRoutesSource.slice(singleStart, singleStart + 600);
+    expect(singleBlock).toMatch(/requireVerifiedEmail\(/);
+    expect(singleBlock).toMatch(/requireTelemetryReader\(/);
   });
 
   it('the fleet route is registered before the :busId route (so "fleet" is never parsed as a busId)', () => {

@@ -81,7 +81,11 @@ describe('Source-scan — production hardening findings stay fixed (spec Section
   });
 
   it('/api/audit-logs is bounded — never an unbounded findAll() on an append-only table', () => {
-    const block = agentRoutesSource.slice(agentRoutesSource.indexOf("'/api/audit-logs'"), agentRoutesSource.indexOf("'/api/audit-logs'") + 300);
+    // Window widened to 450 (from 300) for the Phase 11 identity-verification
+    // lines requireVerifiedEmail/requireOperationalUser now add before the
+    // findFiltered call — see authz.ts's header comment.
+    const block = agentRoutesSource.slice(agentRoutesSource.indexOf("'/api/audit-logs'"), agentRoutesSource.indexOf("'/api/audit-logs'") + 450);
+    expect(block).toMatch(/requireVerifiedEmail\(/);
     expect(block).not.toMatch(/auditRepository\.findAll\(\)/);
     expect(block).toMatch(/findFiltered\(\{\s*limit:\s*\d+\s*\}\)/);
   });

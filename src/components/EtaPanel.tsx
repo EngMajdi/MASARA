@@ -6,7 +6,7 @@ import { Clock, MapPin, Gauge, Navigation, AlertTriangle, Inbox, RefreshCw } fro
 type Scope = { type: 'fleet' } | { type: 'bus'; busId: string; label?: string };
 
 interface EtaPanelProps {
-  userEmail: string;
+  sessionToken: string;
   scope: Scope;
 }
 
@@ -41,13 +41,13 @@ function formatDistance(meters: number | null): string {
 // ETA Intelligence panel (Phase 4D §32/§33) — reads ONLY the server-computed
 // estimate, never calculates ETA client-side. Deliberately not labeled "AI
 // prediction" (spec §51) — this is a deterministic, explainable estimate.
-export const EtaPanel: React.FC<EtaPanelProps> = ({ userEmail, scope }) => {
+export const EtaPanel: React.FC<EtaPanelProps> = ({ sessionToken, scope }) => {
   const [etas, setEtas] = useState<EtaEstimateView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = () => {
-    const request = scope.type === 'fleet' ? getFleetEta(userEmail) : getBusEta(scope.busId, userEmail).then((eta) => [eta]);
+    const request = scope.type === 'fleet' ? getFleetEta(sessionToken) : getBusEta(scope.busId, sessionToken).then((eta) => [eta]);
     request
       .then((data) => {
         setEtas(data);
@@ -63,7 +63,7 @@ export const EtaPanel: React.FC<EtaPanelProps> = ({ userEmail, scope }) => {
     const interval = setInterval(load, POLL_MS);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userEmail, scope.type === 'bus' ? scope.busId : 'fleet']);
+  }, [sessionToken, scope.type === 'bus' ? scope.busId : 'fleet']);
 
   if (loading && !etas) {
     return (

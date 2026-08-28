@@ -4,7 +4,7 @@ import { getEtaAccuracySummary } from '../services/etaAccuracyApi';
 import { Target, AlertTriangle, Inbox, RefreshCw } from 'lucide-react';
 
 interface EtaAccuracyPanelProps {
-  userEmail: string;
+  sessionToken: string;
 }
 
 const POLL_MS = 15000;
@@ -41,13 +41,13 @@ function formatPercentage(pct: number | null): string {
 // (a driver-triggered Journey drop-off). Deliberately shows "لا تتوفر عينات"
 // rather than a fabricated 0% when there is no data yet — measurableSamples
 // is always rendered alongside every average/percentage.
-export const EtaAccuracyPanel: React.FC<EtaAccuracyPanelProps> = ({ userEmail }) => {
+export const EtaAccuracyPanel: React.FC<EtaAccuracyPanelProps> = ({ sessionToken }) => {
   const [view, setView] = useState<EtaAccuracyView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = () => {
-    getEtaAccuracySummary(userEmail)
+    getEtaAccuracySummary(sessionToken)
       .then((data) => {
         setView(data);
         setError(null);
@@ -62,7 +62,7 @@ export const EtaAccuracyPanel: React.FC<EtaAccuracyPanelProps> = ({ userEmail })
     const interval = setInterval(load, POLL_MS);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userEmail]);
+  }, [sessionToken]);
 
   if (loading && !view) {
     return (

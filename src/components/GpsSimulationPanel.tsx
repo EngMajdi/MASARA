@@ -12,7 +12,7 @@ import { Play, Pause, Square, RotateCcw, Loader2, MapPin, Gauge, Compass, Clock,
 
 interface GpsSimulationPanelProps {
   trips: GovernedTrip[];
-  userEmail: string;
+  sessionToken: string | undefined;
 }
 
 const SPEED_PROFILES: { id: SpeedProfile; label: string }[] = [
@@ -36,7 +36,7 @@ const TICK_MS = 1200; // real-time cadence the UI polls at — the simulated clo
 // Phase 4A §66) rather than a separate dashboard. This is deliberately a
 // coordinate/status readout, not a map (spec §33) — no mapping dependency
 // is introduced for Phase 4A.
-export const GpsSimulationPanel: React.FC<GpsSimulationPanelProps> = ({ trips, userEmail }) => {
+export const GpsSimulationPanel: React.FC<GpsSimulationPanelProps> = ({ trips, sessionToken }) => {
   const [selectedTripId, setSelectedTripId] = useState('');
   const [speedProfile, setSpeedProfile] = useState<SpeedProfile>('NORMAL');
   const [session, setSession] = useState<GpsSimulationSession | null>(null);
@@ -47,20 +47,20 @@ export const GpsSimulationPanel: React.FC<GpsSimulationPanelProps> = ({ trips, u
     if (!session || session.status !== 'RUNNING') return;
     const interval = setInterval(async () => {
       try {
-        const { session: s } = await advanceGpsSimulation(session.id, userEmail);
+        const { session: s } = await advanceGpsSimulation(session.id, sessionToken);
         setSession(s);
       } catch (err) {
         setError((err as Error).message);
       }
     }, TICK_MS);
     return () => clearInterval(interval);
-  }, [session, userEmail]);
+  }, [session, sessionToken]);
 
   async function handleStart() {
     setBusy(true);
     setError(null);
     try {
-      const { session: s } = await startGpsSimulation(selectedTripId || trips[0]?.id, userEmail, { speedProfile });
+      const { session: s } = await startGpsSimulation(selectedTripId || trips[0]?.id, sessionToken, { speedProfile });
       setSession(s);
     } catch (err) {
       setError((err as Error).message);
@@ -74,7 +74,7 @@ export const GpsSimulationPanel: React.FC<GpsSimulationPanelProps> = ({ trips, u
     setBusy(true);
     setError(null);
     try {
-      const { session: s } = session.status === 'RUNNING' ? await pauseGpsSimulation(session.id, userEmail) : await resumeGpsSimulation(session.id, userEmail);
+      const { session: s } = session.status === 'RUNNING' ? await pauseGpsSimulation(session.id, sessionToken) : await resumeGpsSimulation(session.id, sessionToken);
       setSession(s);
     } catch (err) {
       setError((err as Error).message);
@@ -88,7 +88,7 @@ export const GpsSimulationPanel: React.FC<GpsSimulationPanelProps> = ({ trips, u
     setBusy(true);
     setError(null);
     try {
-      const { session: s } = await cancelGpsSimulation(session.id, userEmail);
+      const { session: s } = await cancelGpsSimulation(session.id, sessionToken);
       setSession(s);
     } catch (err) {
       setError((err as Error).message);
@@ -101,7 +101,7 @@ export const GpsSimulationPanel: React.FC<GpsSimulationPanelProps> = ({ trips, u
     setBusy(true);
     setError(null);
     try {
-      await resetGpsSimulations(userEmail);
+      await resetGpsSimulations(sessionToken);
       setSession(null);
     } catch (err) {
       setError((err as Error).message);

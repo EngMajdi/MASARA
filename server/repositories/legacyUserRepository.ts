@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { db } from '../../database/client';
+import { db, type DbOrTx } from '../../database/client';
 import { legacyUsers } from '../../database/schema';
 
 type NewLegacyUser = typeof legacyUsers.$inferInsert;
@@ -24,9 +24,10 @@ export const legacyUserRepository = {
     return legacyUserRepository.findAll().find((u) => u.email.toLowerCase() === needle);
   },
 
-  create: (user: NewLegacyUser) => {
+  /** Phase 14 — accepts an optional transaction handle so a caller (ProvisioningService) can compose this write with a governed-side create into one real atomic transaction; defaults to the module `db` for every existing non-transactional caller. */
+  create: (user: NewLegacyUser, executor: DbOrTx = db) => {
     const row = { id: crypto.randomUUID(), ...user };
-    db.insert(legacyUsers).values(row).run();
+    executor.insert(legacyUsers).values(row).run();
     return row;
   },
 

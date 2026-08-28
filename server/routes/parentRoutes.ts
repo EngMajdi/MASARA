@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireParentUser } from '../services/authz';
+import { requireParentUser, requireVerifiedEmail } from '../services/authz';
 import { getParentJourneys, getParentJourneyEvents, ParentAccessDeniedError } from '../services/ParentJourneyService';
 import {
   getNotificationsForParent,
@@ -19,16 +19,30 @@ import {
 // a standalone `/api/parent/journeys/:journeyId` detail lookup was
 // deliberately NOT built since nothing in this phase's UI needs to refetch
 // a single journey outside the summary list.
+//
+// Phase 11 SECURITY FIX — every handler below used to pass a client-supplied
+// `userEmail` query/body field straight into `requireParentUser`, which was a
+// complete authentication bypass (Phase 10 UAT: an unauthenticated
+// `fetch('/api/parent/journeys?userEmail=parent@masara.om')` returned that
+// parent's real children's live GPS/journey data). Every route now resolves
+// the caller's identity from a real, verified session token first
+// (`requireVerifiedEmail`) and only then passes that server-verified email
+// into `requireParentUser` — the query/body `userEmail` field is no longer
+// read anywhere in this file.
 export const parentRouter = Router();
 
 parentRouter.get('/api/parent/journeys', (req, res) => {
-  const guard = requireParentUser(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireParentUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json(getParentJourneys(guard.user));
 });
 
 parentRouter.get('/api/parent/journeys/:journeyId/events', (req, res) => {
-  const guard = requireParentUser(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireParentUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     const events = getParentJourneyEvents(guard.user, req.params.journeyId);
@@ -58,7 +72,9 @@ parentRouter.get('/api/parent/journeys/:journeyId/events', (req, res) => {
 const DEFAULT_NOTIFICATION_LIMIT = 20;
 
 parentRouter.get('/api/parent/notifications', async (req, res) => {
-  const guard = requireParentUser(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireParentUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   const rawLimit = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : NaN;
   const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : DEFAULT_NOTIFICATION_LIMIT;
@@ -71,7 +87,9 @@ parentRouter.get('/api/parent/notifications', async (req, res) => {
 });
 
 parentRouter.get('/api/parent/notifications/unread-count', async (req, res) => {
-  const guard = requireParentUser(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireParentUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     res.json({ count: await getUnreadCountForParent(guard.user) });
@@ -82,7 +100,9 @@ parentRouter.get('/api/parent/notifications/unread-count', async (req, res) => {
 });
 
 parentRouter.post('/api/parent/notifications/:id/read', (req, res) => {
-  const guard = requireParentUser(req.body?.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireParentUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   try {
     res.json(markNotificationRead(guard.user, req.params.id));

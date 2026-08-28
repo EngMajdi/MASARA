@@ -64,21 +64,40 @@ export const buses = sqliteTable('buses', {
   updatedAt: updatedAt(),
 });
 
-export const students = sqliteTable('students', {
-  id: id(),
-  schoolId: text('school_id').notNull().references(() => schools.id),
-  name: text('name').notNull(),
-  grade: text('grade').notNull(),
-  busId: text('bus_id').references(() => buses.id),
-  pickupLat: real('pickup_lat').notNull(),
-  pickupLng: real('pickup_lng').notNull(),
-  pickupAddress: text('pickup_address').notNull(),
-  seatNumber: text('seat_number'),
-  parentName: text('parent_name'),
-  parentPhone: text('parent_phone'),
-  createdAt: createdAt(),
-  updatedAt: updatedAt(),
-});
+export const students = sqliteTable('students',
+  {
+    id: id(),
+    schoolId: text('school_id').notNull().references(() => schools.id),
+    name: text('name').notNull(),
+    grade: text('grade').notNull(),
+    busId: text('bus_id').references(() => buses.id),
+    pickupLat: real('pickup_lat').notNull(),
+    pickupLng: real('pickup_lng').notNull(),
+    pickupAddress: text('pickup_address').notNull(),
+    seatNumber: text('seat_number'),
+    parentName: text('parent_name'),
+    parentPhone: text('parent_phone'),
+    // Phase 13 — the real, stable, non-name-based cross-system student
+    // identity bridge. This governed student record represents the SAME
+    // real student as the referenced legacy_students row, when (and only
+    // when) this is set — a genuine foreign key, not a value-equality
+    // guess. Nullable: most governed students (auto-generated Journey Core
+    // test data from earlier phases) have no legacy counterpart at all,
+    // and that is honestly represented as null, never a fabricated link.
+    // This is the ONLY thing that determines "this governed student IS
+    // that legacy student" anywhere in the codebase — see
+    // server/services/ParentAccessService.ts, which resolves parent
+    // ownership through this column, never through name or phone matching.
+    legacyStudentId: text('legacy_student_id').references(() => legacyStudents.id),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => ({
+    // At most one governed record per legacy student (SQLite unique indexes
+    // permit multiple NULLs, so the 40+ unlinked governed rows are unaffected).
+    legacyStudentUnique: uniqueIndex('students_legacy_student_unique').on(table.legacyStudentId),
+  })
+);
 
 // status: 'active' | 'scheduled' | 'completed' | 'rerouted'
 export const routes = sqliteTable('routes', {

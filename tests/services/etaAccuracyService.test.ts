@@ -617,12 +617,20 @@ describe('Source-scan governance guards (spec mandatory) — accuracy cannot mut
   });
 
   it('both new accuracy routes are guarded (requireOperationalUser for summary, requireTelemetryReader for the trip endpoint)', () => {
+    // Phase 11 SECURITY FIX — every governed route now resolves a verified
+    // identity from the caller's real session token FIRST (requireVerifiedEmail),
+    // then passes that verified email into the existing role guard below —
+    // see server/services/authz.ts's header comment. A fixed 400-char window
+    // (rather than searching for the first literal "});") is used because the
+    // new identity check's own early-return line itself contains "});".
     const summaryStart = routesSource.indexOf("'/api/eta/accuracy/summary'");
-    const summaryBlock = routesSource.slice(summaryStart, routesSource.indexOf('});', summaryStart));
+    const summaryBlock = routesSource.slice(summaryStart, summaryStart + 400);
+    expect(summaryBlock).toMatch(/requireVerifiedEmail\(/);
     expect(summaryBlock).toMatch(/requireOperationalUser\(/);
 
     const tripStart = routesSource.indexOf("'/api/eta/accuracy/trips/:tripId'");
-    const tripBlock = routesSource.slice(tripStart, routesSource.indexOf('});', tripStart));
+    const tripBlock = routesSource.slice(tripStart, tripStart + 400);
+    expect(tripBlock).toMatch(/requireVerifiedEmail\(/);
     expect(tripBlock).toMatch(/requireTelemetryReader\(/);
   });
 });

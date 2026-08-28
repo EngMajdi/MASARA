@@ -6,13 +6,13 @@ import { AlertCircle, History, RefreshCw } from 'lucide-react';
 
 interface JourneyTimelineProps {
   journeyId: string;
-  userEmail: string;
+  sessionToken: string;
 }
 
 // Renders ONLY real audit rows returned by GET /api/journeys/:id/events
 // (spec Phase 3B §17) — never fabricates or derives historical steps from
 // the journey's current state. Oldest first, exactly as the backend orders it.
-export const JourneyTimeline: React.FC<JourneyTimelineProps> = ({ journeyId, userEmail }) => {
+export const JourneyTimeline: React.FC<JourneyTimelineProps> = ({ journeyId, sessionToken }) => {
   const [events, setEvents] = useState<AuditEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -20,7 +20,7 @@ export const JourneyTimeline: React.FC<JourneyTimelineProps> = ({ journeyId, use
   const load = () => {
     setLoading(true);
     setError(null);
-    getJourneyEvents(journeyId, userEmail)
+    getJourneyEvents(journeyId, sessionToken)
       .then((data) => setEvents(data))
       .catch((err) => setError(err.message || 'تعذر تحميل سجل أحداث الرحلة الطلابية.'))
       .finally(() => setLoading(false));

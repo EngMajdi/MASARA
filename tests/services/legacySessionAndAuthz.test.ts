@@ -319,9 +319,30 @@ describe('Source-scan governance guards (spec Step 8 mandatory)', () => {
     const block = serverSource.slice(registerStart, registerEnd);
     expect(block).not.toMatch(/role\s*\|\|\s*'parent'/);
     expect(block).not.toMatch(/req\.body\.role/);
-    expect(block).toMatch(/role:\s*'parent'/);
+    // Phase 14 — the hardcoded 'parent' role moved from this route directly
+    // into ProvisioningService.provisionParentAccount (which the route now
+    // delegates the actual persistence to, so it can also provision the
+    // governed counterpart in the same transaction — see that file's own
+    // header comment). The route itself only ever echoes back the ALREADY-
+    // PERSISTED role it got from that function's result (`newUser.role`) —
+    // never assigns or hardcodes one itself.
+    expect(block).not.toMatch(/role:\s*'parent'/);
+    expect(block).not.toMatch(/role:\s*req\./);
+    const provisioningSource = fs.readFileSync(path.resolve(__dirname, '../../server/services/ProvisioningService.ts'), 'utf8');
+    const fnStart = provisioningSource.indexOf('export function provisionParentAccount');
+    const fnEnd = provisioningSource.indexOf('\n}', fnStart);
+    expect(fnStart).toBeGreaterThan(-1);
+    const fnBlock = provisioningSource.slice(fnStart, fnEnd);
+    expect(fnBlock).not.toMatch(/req\.body\.role/);
+    expect(fnBlock).not.toMatch(/input\.role/);
+    expect(fnBlock).toMatch(/role:\s*'parent'/);
   });
 
+  // Phase 11 SECURITY FIX — every governed route now resolves a verified
+  // identity from the caller's real session token FIRST (requireVerifiedEmail),
+  // then passes that verified email into the existing role guard below — see
+  // server/services/authz.ts's header comment. Windows widened from 250 to
+  // 400 chars to fit the extra identity-check lines this adds.
   it('agentRoutes.ts governance reads (recommendations/audit-logs/predictions) require requireOperationalUser', () => {
     for (const pattern of [
       "agentRouter.get('/api/recommendations'",
@@ -330,18 +351,37 @@ describe('Source-scan governance guards (spec Step 8 mandatory)', () => {
     ]) {
       const start = agentRoutesSource.indexOf(pattern);
       expect(start, `route not found: ${pattern}`).toBeGreaterThan(-1);
-      const block = agentRoutesSource.slice(start, start + 250);
+      const block = agentRoutesSource.slice(start, start + 400);
+      expect(block).toMatch(/requireVerifiedEmail\(/);
       expect(block).toMatch(/requireOperationalUser\(/);
     }
   });
 
   it('agentRoutes.ts operational reference reads (trips/buses/routes/stops) require a real guard, not left open', () => {
-    for (const pattern of ["agentRouter.get('/api/trips'", "agentRouter.get('/api/buses/:id'", "agentRouter.get('/api/routes/:id/stops'"]) {
+    for (const pattern of ["agentRouter.get('/api/trips'", "agentRouter.get('/api/buses/:id'"]) {
       const start = agentRoutesSource.indexOf(pattern);
       expect(start, `route not found: ${pattern}`).toBeGreaterThan(-1);
-      const block = agentRoutesSource.slice(start, start + 250);
+      const block = agentRoutesSource.slice(start, start + 400);
+      expect(block).toMatch(/requireVerifiedEmail\(/);
       expect(block).toMatch(/requireJourneyReader\(|requireOperationalUser\(/);
     }
+  });
+
+  // Phase 15 §9 — this route grew a real second authorization branch (an
+  // ownership-scoped check for the parent role,
+  // ParentAccessService.isRouteAuthorizedForParent) instead of the flat
+  // role-only check every other route here uses, so it no longer fits the
+  // 400-char window above — not because it lost a guard, but because it
+  // gained a more precise one. Window widened to 700 chars to fit both
+  // branches; both a real ownership check (parent) and the pre-existing
+  // role guard (every other role) must be present.
+  it('agentRoutes.ts GET /api/routes/:id/stops requires a real guard on every branch (parent: ownership-scoped; everyone else: role-scoped)', () => {
+    const start = agentRoutesSource.indexOf("agentRouter.get('/api/routes/:id/stops'");
+    expect(start).toBeGreaterThan(-1);
+    const block = agentRoutesSource.slice(start, start + 700);
+    expect(block).toMatch(/requireVerifiedEmail\(/);
+    expect(block).toMatch(/isRouteAuthorizedForParent\(/);
+    expect(block).toMatch(/requireJourneyReader\(/);
   });
 
   it('the legacy authz/session layer imports no Journey/governance mutation module', () => {

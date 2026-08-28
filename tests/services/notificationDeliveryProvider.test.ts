@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { db } from '../../database/client';
-import { students, users } from '../../database/schema';
+import { students, users, legacyUsers, legacyStudents } from '../../database/schema';
 import { InAppNotificationProvider, type NotificationDeliveryPayload, type NotificationDeliveryProvider } from '../../server/services/NotificationDeliveryProvider';
 import { PushNotificationProvider } from '../../server/services/PushNotificationProvider';
 import { SmsNotificationProvider } from '../../server/services/SmsNotificationProvider';
@@ -11,7 +11,6 @@ import { deliverToAllChannels } from '../../server/services/NotificationDelivery
 import { processPendingNotificationsForParent, getNotificationsForParent } from '../../server/services/NotificationService';
 import { notificationRepository } from '../../server/repositories/notificationRepository';
 import { resolveAuthorizedStudents } from '../../server/services/ParentAccessService';
-import { DEMO_PARENT_PHONE_BY_EMAIL } from '../../server/domain/parentAccessContract';
 import { requireParentUser } from '../../server/services/authz';
 import { userRepository } from '../../server/repositories/userRepository';
 import { journeyRepository } from '../../server/repositories/journeyRepository';
@@ -36,9 +35,34 @@ function createFreshAuthorizedChild() {
   freshCounter += 1;
   const admin = userRepository.findByEmail('admin@masara.om')!;
   const bus = busRepository.findAll()[0];
-  const phone = `+968 9700 ${String(freshCounter).padStart(4, '0')}`;
   const email = `delivery-fresh-parent-${freshCounter}-test@masara.om`;
+  const legacyParentId = `test-delivery-legacy-parent-${freshCounter}`;
+  const legacyStudentId = `test-delivery-legacy-student-${freshCounter}`;
 
+  db.insert(legacyUsers)
+    .values({ id: legacyParentId, name: `Delivery Fresh Parent ${freshCounter}`, email, passwordHash: 'x', role: 'parent' })
+    .run();
+  db.insert(legacyStudents)
+    .values({
+      id: legacyStudentId,
+      name: `طالب اختبار تسليم ${freshCounter}`,
+      grade: 'الأول',
+      avatar: 'https://example.test/avatar.png',
+      schoolId: admin.schoolId!,
+      schoolName: 'test',
+      parentId: legacyParentId,
+      parentName: `Delivery Fresh Parent ${freshCounter}`,
+      parentPhone: `+968 9700 ${String(freshCounter).padStart(4, '0')}`,
+      busId: bus.id,
+      busNumber: 'test',
+      pickupLat: 23.6,
+      pickupLng: 58.4,
+      pickupAddress: 'test',
+      pickupNameAr: 'test',
+      pickupTimePlanned: '06:00',
+      seatNumber: '01A',
+    })
+    .run();
   db.insert(students)
     .values({
       id: crypto.randomUUID(),
@@ -49,11 +73,10 @@ function createFreshAuthorizedChild() {
       pickupLat: 23.6,
       pickupLng: 58.4,
       pickupAddress: 'test',
-      parentPhone: phone,
+      legacyStudentId,
     })
     .run();
   db.insert(users).values({ id: crypto.randomUUID(), schoolId: admin.schoolId, name: `Delivery Fresh Parent ${freshCounter}`, email, passwordHash: 'x', role: 'parent' }).run();
-  (DEMO_PARENT_PHONE_BY_EMAIL as Record<string, string>)[email] = phone;
 
   const parentUser = userRepository.findByEmail(email)!;
   const student = resolveAuthorizedStudents(parentUser)[0];

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { listOperationsEvents, type FeedCategory } from '../services/OperationsFeed';
-import { requireOperationalUser } from '../services/authz';
+import { requireOperationalUser, requireVerifiedEmail } from '../services/authz';
 import { tripRepository } from '../repositories/tripRepository';
 import { busRepository } from '../repositories/busRepository';
 import { routeRepository } from '../repositories/routeRepository';
@@ -9,12 +9,17 @@ import { getTripJourneySummary, ensureJourneysForTrip, type JourneyActor } from 
 
 // Read-only projection over audit_logs (spec §22/§24/§25) — admin/school only
 // (spec §42/§43), same operational-role gate as everything else in Phase 2A/2B.
+//
+// Phase 11 SECURITY FIX — identity now comes from a verified session token
+// (`requireVerifiedEmail`), never a client-supplied `userEmail` query parameter.
 export const operationsRouter = Router();
 
 const VALID_CATEGORIES = new Set<FeedCategory>(['all', 'ai', 'trips', 'students', 'approvals', 'actions', 'verification', 'safety']);
 
 operationsRouter.get('/api/operations/events', (req, res) => {
-  const guard = requireOperationalUser(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
 
   const { tripId, studentId, recommendationId, eventType, category, since, limit } = req.query;
@@ -44,7 +49,9 @@ operationsRouter.get('/api/operations/events', (req, res) => {
 // before adding this. No new state, no new table — pure aggregation over
 // JourneyService.getTripJourneySummary, which already does the real counting.
 operationsRouter.get('/api/operations/journeys', (req, res) => {
-  const guard = requireOperationalUser(req.query.userEmail);
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
 
   const trips = tripRepository.findAll().filter((t) => t.status === 'active' || t.status === 'scheduled');

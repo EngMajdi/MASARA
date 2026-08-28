@@ -6,7 +6,7 @@ import { MapPin, Gauge, Compass, Radio, RefreshCw, Clock, Inbox, AlertTriangle }
 type Scope = { type: 'fleet' } | { type: 'bus'; busId: string; label?: string };
 
 interface CurrentLocationPanelProps {
-  userEmail: string;
+  sessionToken: string;
   scope: Scope;
 }
 
@@ -23,7 +23,7 @@ const SOURCE_LABELS: Record<string, string> = {
 // remains the sole authority: every poll simply replaces local state with
 // whatever the server currently says (spec §46 — no client-side location
 // authority, no drag-and-drop, no manual coordinate edits).
-export const CurrentLocationPanel: React.FC<CurrentLocationPanelProps> = ({ userEmail, scope }) => {
+export const CurrentLocationPanel: React.FC<CurrentLocationPanelProps> = ({ sessionToken, scope }) => {
   const [locations, setLocations] = useState<CurrentLocation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -31,8 +31,8 @@ export const CurrentLocationPanel: React.FC<CurrentLocationPanelProps> = ({ user
   const load = () => {
     const request =
       scope.type === 'fleet'
-        ? getFleetCurrentLocations(userEmail)
-        : getBusCurrentLocation(scope.busId, userEmail).then((loc) => (loc ? [loc] : []));
+        ? getFleetCurrentLocations(sessionToken)
+        : getBusCurrentLocation(scope.busId, sessionToken).then((loc) => (loc ? [loc] : []));
 
     request
       .then((data) => {
@@ -49,7 +49,7 @@ export const CurrentLocationPanel: React.FC<CurrentLocationPanelProps> = ({ user
     const interval = setInterval(load, POLL_MS);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userEmail, scope.type === 'bus' ? scope.busId : 'fleet']);
+  }, [sessionToken, scope.type === 'bus' ? scope.busId : 'fleet']);
 
   if (loading && !locations) {
     return (

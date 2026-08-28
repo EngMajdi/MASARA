@@ -6,6 +6,7 @@ import { DriverJourneyConsole } from './DriverJourneyConsole';
 import { Button, Card, Badge, ConfirmDialog, Sheet, EmptyState, Metric, StatusDot } from './ui';
 import { LiveRadar, RadarPosition } from './live/LiveRadar';
 import { getBusCurrentLocation } from '../services/currentLocationApi';
+import { getDriverTrips } from '../services/journeysApi';
 import {
   Navigation,
   CheckCircle2,
@@ -20,14 +21,48 @@ import {
   Wrench
 } from 'lucide-react';
 
+/**
+ * Phase 12 fix — resolves the GOVERNED bus UUID for the driver's own legacy
+ * bus, via the one endpoint a driver is actually authorized to call for
+ * their own trips (`requireDriverIdentity`, spec §7's traced chain:
+ * Driver -> driverId -> own trip -> governed busId). `busNumber` is the
+ * field already confirmed to match exactly across the legacy and governed
+ * stores (same bridge `governedBusResolver.ts` already uses for School/
+ * Admin) — this was never wired into the Driver's own-bus panel, which
+ * instead passed the legacy `Bus.id` straight into a governed-ID-keyed
+ * ownership check and got a silent, honestly-masked 403 (documented in
+ * Phase 11 as a found-but-not-yet-fixed instance of the same class of bug).
+ * A driver cannot call the fleet-wide telemetry endpoint (admin/school
+ * only), so the fleet-then-filter approach School/Admin use doesn't apply
+ * here — this instead reuses data the driver already legitimately has.
+ */
+function useOwnGovernedBusId(sessionToken: string | undefined, legacyBusNumber: string | undefined) {
+  const [governedBusId, setGovernedBusId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!sessionToken || !legacyBusNumber) return;
+    let cancelled = false;
+    getDriverTrips(sessionToken)
+      .then((trips) => {
+        if (cancelled) return;
+        const match = trips.find((t) => t.busNumber === legacyBusNumber);
+        setGovernedBusId(match ? match.trip.busId : null);
+      })
+      .catch(() => !cancelled && setGovernedBusId(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionToken, legacyBusNumber]);
+  return governedBusId;
+}
+
 /** Polls the driver's OWN bus current-location projection (server-scoped, real telemetry — see docs/LIVE_TRACKING_ARCHITECTURE_AUDIT.md). Never fabricated: null means honestly no data yet. */
-function useOwnBusLocation(busId: string | undefined, userEmail: string | undefined) {
+function useOwnBusLocation(busId: string | undefined, sessionToken: string | undefined) {
   const [position, setPosition] = useState<RadarPosition | null>(null);
   useEffect(() => {
-    if (!busId || !userEmail) return;
+    if (!busId || !sessionToken) return;
     let cancelled = false;
     const load = () =>
-      getBusCurrentLocation(busId, userEmail)
+      getBusCurrentLocation(busId, sessionToken)
         .then((loc) => {
           if (cancelled) return;
           setPosition(loc ? { lat: loc.latitude, lng: loc.longitude, speedKmh: loc.speed, heading: loc.heading, freshness: loc.freshness, receivedAt: loc.receivedAt } : null);
@@ -39,7 +74,7 @@ function useOwnBusLocation(busId: string | undefined, userEmail: string | undefi
       cancelled = true;
       clearInterval(interval);
     };
-  }, [busId, userEmail]);
+  }, [busId, sessionToken]);
   return position;
 }
 
@@ -83,7 +118,8 @@ export const DriverPortal: React.FC<DriverPortalProps> = ({ buses, students, rou
   const [showIncidentSheet, setShowIncidentSheet] = useState(false);
   const [selectedIncident, setSelectedIncident] = useState(INCIDENT_OPTIONS[0]);
   const [showOfficialLog, setShowOfficialLog] = useState(false);
-  const ownBusPosition = useOwnBusLocation(activeBus?.id, currentUser?.email);
+  const governedBusId = useOwnGovernedBusId(currentUser?.sessionToken, activeBus?.busNumber);
+  const ownBusPosition = useOwnBusLocation(governedBusId ?? undefined, currentUser?.sessionToken);
 
   if (buses.length > 0 && !ownedBus) {
     return <EmptyState icon={<Navigation />} title="لا توجد حافلة مسندة لحسابك" description="تواصل مع إدارة المدرسة لإتمام إسناد حافلة ومسار لك." />;
@@ -235,7 +271,7 @@ export const DriverPortal: React.FC<DriverPortalProps> = ({ buses, students, rou
           </div>
 
           {/* Official governed trip log — secondary, collapsed by default */}
-          {currentUser?.email && (
+          {currentUser?.sessionToken && (
             <div>
               <button onClick={() => setShowOfficialLog((v) => !v)} className="w-full flex items-center justify-between text-sm font-bold text-text-secondary py-2">
                 <span className="flex items-center gap-1.5">
@@ -246,7 +282,7 @@ export const DriverPortal: React.FC<DriverPortalProps> = ({ buses, students, rou
               </button>
               {showOfficialLog && (
                 <div className="animate-fade-in">
-                  <DriverJourneyConsole userEmail={currentUser.email} />
+                  <DriverJourneyConsole sessionToken={currentUser.sessionToken} />
                 </div>
               )}
             </div>

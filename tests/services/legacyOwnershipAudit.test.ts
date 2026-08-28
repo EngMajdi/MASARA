@@ -112,9 +112,10 @@ describe('Phase 7I — parent->student ownership: the parentId field is decorati
     expect(precedingComment).not.toMatch(/NOT enforced/);
   });
 
-  it('the governed side (Phase 5A) reached the same conclusion independently — prior art, not a fresh guess', () => {
+  it('Phase 13: the governed side now documents the real parent<->student identity bridge that replaced the Phase 5A DEMO-ONLY placeholder (this specific limitation is closed)', () => {
     const contractSource = fs.readFileSync(path.resolve(__dirname, '../../server/domain/parentAccessContract.ts'), 'utf8');
-    expect(contractSource).toMatch(/no real parent<->student relation/);
+    expect(contractSource).toMatch(/legacyStudentId/);
+    expect(contractSource).not.toMatch(/DEMO_PARENT_PHONE_BY_EMAIL\s*[:=]/);
   });
 });
 

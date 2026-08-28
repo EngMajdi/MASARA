@@ -34,7 +34,7 @@ import {
 } from 'lucide-react';
 
 interface DriverJourneyConsoleProps {
-  userEmail: string;
+  sessionToken: string;
 }
 
 type ActionKey = 'start' | 'start-boarding' | 'board' | 'start-transit' | 'approach-stop' | 'drop-off' | 'complete' | 'missed' | 'incident' | 'cancel';
@@ -83,7 +83,7 @@ const POLL_MS = 4000;
 // backend afterward (no optimistic updates); a 409 conflict (someone else
 // already moved this journey) surfaces a message and refreshes rather than
 // overwriting backend truth (spec §57/§65).
-export const DriverJourneyConsole: React.FC<DriverJourneyConsoleProps> = ({ userEmail }) => {
+export const DriverJourneyConsole: React.FC<DriverJourneyConsoleProps> = ({ sessionToken }) => {
   const [trips, setTrips] = useState<TripWithJourneys[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -97,7 +97,7 @@ export const DriverJourneyConsole: React.FC<DriverJourneyConsoleProps> = ({ user
   const [detail, setDetail] = useState<JourneyWithStudent | null>(null);
 
   const loadTrips = () => {
-    getDriverTrips(userEmail)
+    getDriverTrips(sessionToken)
       .then((data) => {
         setTrips(data);
         setError(null);
@@ -116,13 +116,13 @@ export const DriverJourneyConsole: React.FC<DriverJourneyConsoleProps> = ({ user
     const interval = setInterval(loadTrips, POLL_MS);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userEmail]);
+  }, [sessionToken]);
 
   const selectedTrip = trips?.find((t) => t.trip.id === selectedTripId) ?? null;
 
   useEffect(() => {
     if (!selectedTrip) return;
-    getRouteStops(selectedTrip.trip.routeId, userEmail)
+    getRouteStops(selectedTrip.trip.routeId, sessionToken)
       .then((s) => {
         setStops(s);
         setSelectedStopId((prev) => (prev && s.some((st) => st.id === prev) ? prev : s[0]?.id ?? ''));
@@ -142,34 +142,34 @@ export const DriverJourneyConsole: React.FC<DriverJourneyConsoleProps> = ({ user
     try {
       switch (action.key) {
         case 'start':
-          await startJourney(journey.id, userEmail);
+          await startJourney(journey.id, sessionToken);
           break;
         case 'start-boarding':
-          await startBoarding(journey.id, userEmail);
+          await startBoarding(journey.id, sessionToken);
           break;
         case 'board':
-          await boardStudent(journey.id, userEmail);
+          await boardStudent(journey.id, sessionToken);
           break;
         case 'start-transit':
-          await startTransit(journey.id, userEmail);
+          await startTransit(journey.id, sessionToken);
           break;
         case 'approach-stop':
-          await approachStop(journey.id, selectedStopId, userEmail);
+          await approachStop(journey.id, selectedStopId, sessionToken);
           break;
         case 'drop-off':
-          await dropOffStudent(journey.id, journey.currentStopId ?? selectedStopId, userEmail);
+          await dropOffStudent(journey.id, journey.currentStopId ?? selectedStopId, sessionToken);
           break;
         case 'complete':
-          await completeJourney(journey.id, userEmail);
+          await completeJourney(journey.id, sessionToken);
           break;
         case 'missed':
-          await markMissed(journey.id, reason ?? '', userEmail);
+          await markMissed(journey.id, reason ?? '', sessionToken);
           break;
         case 'incident':
-          await markIncident(journey.id, reason, userEmail);
+          await markIncident(journey.id, reason, sessionToken);
           break;
         case 'cancel':
-          await cancelJourney(journey.id, reason, userEmail);
+          await cancelJourney(journey.id, reason, sessionToken);
           break;
       }
       setToast({ tone: 'success', message: `تم تنفيذ "${action.label}" لـ ${journey.studentName ?? 'الطالب'} بنجاح.` });
@@ -301,7 +301,7 @@ export const DriverJourneyConsole: React.FC<DriverJourneyConsoleProps> = ({ user
               <MapPin className="w-3.5 h-3.5 text-blue-600" />
               <span>الموقع الحالي للحافلة</span>
             </h3>
-            <CurrentLocationPanel userEmail={userEmail} scope={{ type: 'bus', busId: selectedTrip.trip.busId, label: selectedTrip.busNumber ?? undefined }} />
+            <CurrentLocationPanel sessionToken={sessionToken} scope={{ type: 'bus', busId: selectedTrip.trip.busId, label: selectedTrip.busNumber ?? undefined }} />
           </div>
 
           {/* ETA Intelligence (Phase 4D) — this trip's own estimate only, never another driver's */}
@@ -310,7 +310,7 @@ export const DriverJourneyConsole: React.FC<DriverJourneyConsoleProps> = ({ user
               <Clock className="w-3.5 h-3.5 text-blue-600" />
               <span>تقدير وقت الوصول</span>
             </h3>
-            <EtaPanel userEmail={userEmail} scope={{ type: 'bus', busId: selectedTrip.trip.busId, label: selectedTrip.busNumber ?? undefined }} />
+            <EtaPanel sessionToken={sessionToken} scope={{ type: 'bus', busId: selectedTrip.trip.busId, label: selectedTrip.busNumber ?? undefined }} />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -424,7 +424,7 @@ export const DriverJourneyConsole: React.FC<DriverJourneyConsoleProps> = ({ user
       )}
 
       {detail && (
-        <JourneyDetailModal journey={detail} studentName={detail.studentName ?? 'طالب غير معروف'} userEmail={userEmail} onClose={() => setDetail(null)} />
+        <JourneyDetailModal journey={detail} studentName={detail.studentName ?? 'طالب غير معروف'} sessionToken={sessionToken} onClose={() => setDetail(null)} />
       )}
     </div>
   );

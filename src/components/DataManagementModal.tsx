@@ -62,12 +62,46 @@ export const DataManagementModal: React.FC<DataManagementModalProps> = ({
   const [assignMsg, setAssignMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  // Phase 14 — the real governed buses (the ones Parent Live Journey/GPS
+  // actually run against), for the "enable live tracking" step below.
+  const [governedBuses, setGovernedBuses] = useState<{ id: string; busNumber: string }[]>([]);
+  const [liveTrackingBusChoice, setLiveTrackingBusChoice] = useState<Record<string, string>>({});
+  const [liveTrackingEnabled, setLiveTrackingEnabled] = useState<Record<string, boolean>>({});
+
   useEffect(() => {
     if (!isOpen || !currentUser?.sessionToken) return;
     const headers = legacyAuthHeaders(currentUser.sessionToken);
     fetch('/api/admin/employees', { headers }).then((r) => r.json()).then((data) => data.success && setEmployees(data.employees)).catch(() => {});
     fetch('/api/admin/parents', { headers }).then((r) => r.json()).then((data) => data.success && setParentAccounts(data.parents)).catch(() => {});
+    fetch('/api/governed/buses', { headers }).then((r) => r.json()).then((data) => Array.isArray(data) && setGovernedBuses(data)).catch(() => {});
   }, [isOpen, currentUser?.sessionToken]);
+
+  const handleEnableLiveTracking = async (legacyStudentId: string) => {
+    const governedBusId = liveTrackingBusChoice[legacyStudentId];
+    if (!governedBusId) {
+      setAssignMsg('يرجى اختيار الحافلة الحقيقية (النظام المحوكم) أولاً');
+      setTimeout(() => setAssignMsg(null), 3000);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/students/${legacyStudentId}/provision-governed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...legacyAuthHeaders(currentUser?.sessionToken) },
+        body: JSON.stringify({ busId: governedBusId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setLiveTrackingEnabled((prev) => ({ ...prev, [legacyStudentId]: true }));
+        showToast('تم تفعيل التتبع المباشر لهذا الطالب');
+      } else {
+        setAssignMsg(data.error || 'تعذّر تفعيل التتبع المباشر');
+        setTimeout(() => setAssignMsg(null), 3000);
+      }
+    } catch {
+      setAssignMsg('حدث خطأ في الاتصال بالخادم');
+      setTimeout(() => setAssignMsg(null), 3000);
+    }
+  };
 
   const activeDrivers = employees.filter((e) => e.role === 'driver' && e.status === 'active');
   const activeParents = parentAccounts.filter((e) => e.status === 'active');
@@ -316,6 +350,31 @@ export const DataManagementModal: React.FC<DataManagementModalProps> = ({
                         {activeParents.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
                     </div>
+                    {std.parentId && (
+                      <div className="flex items-center gap-2 border-t border-border-default pt-2">
+                        <label className="text-xs text-text-secondary font-bold shrink-0">التتبع المباشر:</label>
+                        {liveTrackingEnabled[std.id] ? (
+                          <span className="text-xs text-emerald-700 font-bold">مُفعّل ✓</span>
+                        ) : (
+                          <>
+                            <select
+                              value={liveTrackingBusChoice[std.id] || ''}
+                              onChange={(e) => setLiveTrackingBusChoice((prev) => ({ ...prev, [std.id]: e.target.value }))}
+                              className="flex-1 bg-surface-sunken border border-border-default rounded-lg px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-primary"
+                            >
+                              <option value="">— اختر حافلة حقيقية —</option>
+                              {governedBuses.map((b) => <option key={b.id} value={b.id}>{b.busNumber}</option>)}
+                            </select>
+                            <button
+                              onClick={() => handleEnableLiveTracking(std.id)}
+                              className="text-xs font-bold text-primary bg-primary-soft px-2.5 py-1 rounded-lg shrink-0 hover:opacity-80"
+                            >
+                              تفعيل
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </Card>
                 ))}
               </div>

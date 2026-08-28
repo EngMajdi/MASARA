@@ -280,10 +280,16 @@ describe('Source-scan governance guards', () => {
     const start = serverSource.indexOf("app.post('/api/auth/register'");
     const block = serverSource.slice(start, serverSource.indexOf("\n});", start));
     const policyCheckIdx = block.indexOf('validatePasswordPolicy(');
-    const createIdx = block.indexOf('legacyUserRepository.create(');
+    // Phase 14 — persistence moved from a direct legacyUserRepository.create
+    // call into ProvisioningService.provisionParentAccount (which creates
+    // both the legacy AND governed rows in one real transaction — see that
+    // file's own header comment); the ordering guarantee this test protects
+    // (policy check strictly before any persistence) now applies to that
+    // call instead.
+    const provisionIdx = block.indexOf('provisionParentAccount(');
     expect(policyCheckIdx).toBeGreaterThan(-1);
-    expect(createIdx).toBeGreaterThan(-1);
-    expect(policyCheckIdx).toBeLessThan(createIdx);
+    expect(provisionIdx).toBeGreaterThan(-1);
+    expect(policyCheckIdx).toBeLessThan(provisionIdx);
   });
 
   it('no raw session token, password, or currentPassword/newPassword value is ever passed to console.log/error/warn in these files', () => {

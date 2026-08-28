@@ -60,9 +60,9 @@ function toEventView(row: ReturnType<typeof auditRepository.findByEntity>[number
 }
 
 /** Composes one ParentJourneyView from an already-resolved, already-authorized journey. Never throws — a missing trip/bus/route/location/ETA degrades to null fields, never a fabricated value (spec §6). */
-function buildView(childId: string, childName: string, journey: JourneyRow | null): ParentJourneyView {
+function buildView(childId: string, childName: string, childLegacyStudentId: string | null, journey: JourneyRow | null): ParentJourneyView {
   if (!journey) {
-    return { child: { id: childId, name: childName }, journey: null, bus: null, route: null, driver: null, location: null, eta: null, lastEvent: null };
+    return { child: { id: childId, name: childName, legacyStudentId: childLegacyStudentId }, journey: null, bus: null, route: null, driver: null, location: null, eta: null, lastEvent: null };
   }
 
   const trip = tripRepository.findById(journey.tripId);
@@ -85,7 +85,7 @@ function buildView(childId: string, childName: string, journey: JourneyRow | nul
   const lastEvent = events.length > 0 ? toEventView(events[events.length - 1]) : null;
 
   return {
-    child: { id: childId, name: childName },
+    child: { id: childId, name: childName, legacyStudentId: childLegacyStudentId },
     journey: {
       id: journey.id,
       state: journey.state as JourneyState,
@@ -129,7 +129,7 @@ function buildView(childId: string, childName: string, journey: JourneyRow | nul
 export function getParentJourneys(parentUser: GovernedUser): ParentJourneyView[] {
   return resolveAuthorizedStudents(parentUser).map((student) => {
     const journey = selectRelevantJourney(journeyRepository.findByStudentId(student.id));
-    return buildView(student.id, student.name, journey);
+    return buildView(student.id, student.name, student.legacyStudentId, journey);
   });
 }
 
