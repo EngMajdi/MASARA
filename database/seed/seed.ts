@@ -123,7 +123,28 @@ function parentName(i: number): string {
   return `ولي أمر ${FAMILY_NAMES[(i * 5 + 3) % FAMILY_NAMES.length]}`;
 }
 
+// Phase 15.5 — Cloud Pilot Readiness (spec §8/§34): this seed is fully
+// destructive (clearAll() below wipes every table) and plants ~50 demo
+// accounts sharing one hardcoded password. That is correct and unchanged
+// for local dev/test. It must never run against a real pilot database —
+// see database/seed/genesis.ts for the real, non-destructive bootstrap
+// path. This is the one minimal guard against the single most
+// catastrophic operator mistake (running this by habit against a live
+// pilot): it refuses in production unless explicitly overridden, and does
+// nothing else differently — no behavior change for dev/test.
+function assertSafeToRunDestructiveSeed() {
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DESTRUCTIVE_SEED !== 'true') {
+    throw new Error(
+      'Refusing to run the destructive dev/test seed (database/seed/seed.ts) with NODE_ENV=production. ' +
+        'This would permanently delete all existing data, including any real pilot data. ' +
+        'For a real pilot\'s one-time bootstrap, use database/seed/genesis.ts instead. ' +
+        'If you truly intend to wipe this database, set ALLOW_DESTRUCTIVE_SEED=true explicitly.'
+    );
+  }
+}
+
 export function seed() {
+  assertSafeToRunDestructiveSeed();
   clearAll();
 
   const school = {
