@@ -46,7 +46,7 @@ import type { TelemetryObservation } from '../domain/telemetryContract';
 // telemetry_observations) — exactly mirroring Phase 4A's own documented
 // "simulation sessions are in-memory only, lost on restart" limitation.
 
-export type LocationSource = 'DEVICE' | 'GPS_PROVIDER' | 'SIMULATION';
+export type LocationSource = 'DEVICE' | 'GPS_PROVIDER' | 'SIMULATION' | 'DRIVER_PHONE';
 export type Freshness = 'FRESH' | 'STALE';
 
 // Configurable, documented (spec §10) — a prototype-reasonable default. Not

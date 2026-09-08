@@ -13,7 +13,13 @@ import { generateDeviceSecret, hashDeviceSecret } from './deviceCredentials';
 // repeatedly been told to avoid.
 
 export type DeviceStatus = 'active' | 'disabled' | 'revoked';
-export type DeviceProviderType = 'DEVICE' | 'GPS_PROVIDER';
+// 'DRIVER_PHONE' — a driver's own phone, authenticated by their existing
+// session (never a device secret) and used only via
+// getOrCreateDriverPhoneDevice below. Added for real-pilot GPS without
+// dedicated hardware: reuses this exact device/observation pipeline
+// rather than inventing a second one (see TelemetryIngestionService.ts's
+// ingestDriverPhoneObservation).
+export type DeviceProviderType = 'DEVICE' | 'GPS_PROVIDER' | 'DRIVER_PHONE';
 
 export class DeviceNotFoundError extends Error {}
 export class DeviceValidationError extends Error {}
@@ -64,7 +70,7 @@ export function registerDevice(
 ): { device: PublicDevice; secret: string } {
   if (!busId) throw new DeviceValidationError('busId مطلوب.');
   if (!label || !label.trim()) throw new DeviceValidationError('اسم الجهاز (label) مطلوب.');
-  if (providerType !== 'DEVICE' && providerType !== 'GPS_PROVIDER') {
+  if (providerType !== 'DEVICE' && providerType !== 'GPS_PROVIDER' && providerType !== 'DRIVER_PHONE') {
     // Explicitly excludes 'SIMULATION' — the simulator is never registered
     // as a physical device (spec §42).
     throw new DeviceValidationError(`نوع مزوّد غير صالح: "${providerType}".`);
@@ -105,4 +111,26 @@ export function revokeDevice(id: string): PublicDevice {
   if (device.status === 'revoked') throw new DeviceStateError('الجهاز مُلغى بالفعل.');
   telemetryDeviceRepository.update(id, { status: 'revoked' });
   return toPublicDevice(requireDevice(id));
+}
+
+/**
+ * Real-pilot GPS without dedicated hardware: idempotent lookup-or-create
+ * for the one "device" row representing a bus's driver's own phone. Never
+ * creates a second one for the same bus — reusing the same row keeps a
+ * consistent, real history exactly like a real hardware device would.
+ *
+ * No secret is ever used or checked for this provider type — the caller
+ * (TelemetryIngestionService.ingestDriverPhoneObservation) has already
+ * verified the caller is that trip's real driver via their own session,
+ * before this function is ever reached. The secretHash this still
+ * generates exists only to satisfy the schema's NOT NULL column and is
+ * never exposed by any endpoint (same guarantee as every other device).
+ */
+export function getOrCreateDriverPhoneDevice(busId: string): PublicDevice {
+  const existing = telemetryDeviceRepository
+    .findByBusId(busId)
+    .find((d) => d.providerType === 'DRIVER_PHONE' && d.status === 'active');
+  if (existing) return toPublicDevice(existing);
+  const { device } = registerDevice(busId, 'هاتف السائق', 'DRIVER_PHONE');
+  return device;
 }

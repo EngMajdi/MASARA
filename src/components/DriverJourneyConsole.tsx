@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { GovernedRouteStop, JourneyState, JourneyWithStudent, TripWithJourneys } from '../types';
 import {
   getDriverTrips,
@@ -13,6 +13,7 @@ import {
   markMissed,
   markIncident,
   cancelJourney,
+  postDriverTelemetry,
 } from '../services/journeysApi';
 import { JourneyStatusBadge } from './JourneyStatusBadge';
 import { JourneyDetailModal } from './JourneyDetailModal';
@@ -31,7 +32,14 @@ import {
   Siren,
   RotateCcw,
   Clock,
+  Navigation,
 } from 'lucide-react';
+
+// Real-pilot GPS without dedicated hardware (see server/services/TelemetryIngestionService.ts's
+// ingestDriverPhoneObservation) — how often an actual network POST goes
+// out, independent of how often the browser's own GPS fix updates
+// (watchPosition can fire much more often than this on some devices).
+const LOCATION_SEND_INTERVAL_MS = 8000;
 
 interface DriverJourneyConsoleProps {
   sessionToken: string;
@@ -95,6 +103,11 @@ export const DriverJourneyConsole: React.FC<DriverJourneyConsoleProps> = ({ sess
   const [reasonInput, setReasonInput] = useState('');
   const [toast, setToast] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const [detail, setDetail] = useState<JourneyWithStudent | null>(null);
+  const [sharingLocation, setSharingLocation] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [lastLocationSentAt, setLastLocationSentAt] = useState<Date | null>(null);
+  const watchIdRef = useRef<number | null>(null);
+  const lastSendAtRef = useRef<number>(0);
 
   const loadTrips = () => {
     getDriverTrips(sessionToken)
@@ -189,6 +202,77 @@ export const DriverJourneyConsole: React.FC<DriverJourneyConsoleProps> = ({ sess
       loadTrips();
     }
   };
+
+  const stopSharingLocation = () => {
+    if (watchIdRef.current != null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    setSharingLocation(false);
+  };
+
+  const startSharingLocation = () => {
+    if (!selectedTrip) return;
+    if (!('geolocation' in navigator)) {
+      setLocationError('هذا المتصفح لا يدعم تحديد الموقع.');
+      return;
+    }
+    setLocationError(null);
+    const tripId = selectedTrip.trip.id;
+    const id = navigator.geolocation.watchPosition(
+      (position) => {
+        const now = Date.now();
+        // Real-world GPS fixes can arrive far more often than we want to
+        // hit the network (spec: honest, not chatty) — throttle the
+        // actual POST, never the accuracy of what we eventually send.
+        if (now - lastSendAtRef.current < LOCATION_SEND_INTERVAL_MS) return;
+        lastSendAtRef.current = now;
+
+        const { latitude, longitude, speed, heading, accuracy } = position.coords;
+        postDriverTelemetry(
+          {
+            tripId,
+            sourceEventId: crypto.randomUUID(),
+            latitude,
+            longitude,
+            // Browser geolocation reports speed in m/s (or null); the
+            // server/every other panel in this app expects km/h.
+            speedKmh: typeof speed === 'number' && speed >= 0 ? speed * 3.6 : undefined,
+            heading: typeof heading === 'number' && !Number.isNaN(heading) ? heading : undefined,
+            accuracyMeters: typeof accuracy === 'number' ? accuracy : undefined,
+          },
+          sessionToken
+        )
+          .then(() => setLastLocationSentAt(new Date()))
+          .catch((err: Error) => setLocationError(err.message || 'تعذر إرسال موقعك الحالي.'));
+      },
+      (err) => {
+        setLocationError(
+          err.code === err.PERMISSION_DENIED
+            ? 'تم رفض إذن الوصول لموقعك — فعّله من إعدادات المتصفح للسماح بمشاركة الموقع.'
+            : 'تعذر تحديد موقعك الحالي — تأكد من تفعيل GPS بجوالك.'
+        );
+        stopSharingLocation();
+      },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
+    );
+    watchIdRef.current = id;
+    setSharingLocation(true);
+  };
+
+  const toggleSharingLocation = () => (sharingLocation ? stopSharingLocation() : startSharingLocation());
+
+  // Never keep sharing a trip the driver navigated away from, and never
+  // leak a geolocation watch past this screen's own lifetime.
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current);
+    };
+  }, []);
+  useEffect(() => {
+    stopSharingLocation();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTripId]);
 
   const handleActionClick = (journey: JourneyWithStudent, action: ActionDef) => {
     if (inFlight.has(journey.id)) return;
@@ -292,6 +376,37 @@ export const DriverJourneyConsole: React.FC<DriverJourneyConsoleProps> = ({ sess
                   ))}
                 </select>
               </div>
+            )}
+          </div>
+
+          {/* Real-pilot GPS without dedicated hardware — the driver's own phone becomes the bus's live-location source, feeding the exact same panel below. */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <h3 className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                <Navigation className="w-3.5 h-3.5 text-blue-600" />
+                <span>مشاركة موقعي المباشر</span>
+              </h3>
+              <button
+                onClick={toggleSharingLocation}
+                className={`text-xs font-bold px-4 py-2 rounded-xl transition-colors ${
+                  sharingLocation ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
+              >
+                {sharingLocation ? 'جارٍ المشاركة — إيقاف' : 'بدء مشاركة موقعي'}
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-2">
+              {sharingLocation
+                ? lastLocationSentAt
+                  ? `آخر إرسال: ${lastLocationSentAt.toLocaleTimeString('ar')} — أبقِ هذه الصفحة مفتوحة أثناء القيادة.`
+                  : 'جارٍ تحديد موقعك...'
+                : 'فعّل هذا الخيار ليرى ولي الأمر موقع الحافلة مباشرة من خلال GPS جوالك.'}
+            </p>
+            {locationError && (
+              <p className="text-[11px] text-rose-600 font-bold mt-1.5 flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3 shrink-0" />
+                <span>{locationError}</span>
+              </p>
             )}
           </div>
 

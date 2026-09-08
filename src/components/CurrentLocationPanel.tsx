@@ -16,6 +16,7 @@ const SOURCE_LABELS: Record<string, string> = {
   DEVICE: 'جهاز حقيقي',
   GPS_PROVIDER: 'مزوّد GPS',
   SIMULATION: 'محاكاة',
+  DRIVER_PHONE: 'جوال السائق',
 };
 
 // Reads ONLY the derived current-location projection (spec Phase 4C §14/§44)

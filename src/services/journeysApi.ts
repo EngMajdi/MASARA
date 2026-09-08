@@ -75,3 +75,26 @@ export const cancelJourney = (journeyId: string, reason: string | undefined, ses
   postJourneyAction(journeyId, 'cancel', sessionToken, { reason });
 export const markIncident = (journeyId: string, reason: string | undefined, sessionToken: string | undefined) =>
   postJourneyAction(journeyId, 'incident', sessionToken, { reason });
+
+// Real-pilot GPS without dedicated hardware — the driver's own phone,
+// authenticated by their own session (never a device secret). Reuses the
+// exact same telemetry/current-location/ETA pipeline every hardware
+// device or GPS provider already feeds (server/services/TelemetryIngestionService.ts's
+// ingestDriverPhoneObservation) — this is not a second tracking system.
+export interface DriverPhoneTelemetryReading {
+  tripId: string;
+  sourceEventId: string;
+  latitude: number;
+  longitude: number;
+  speedKmh?: number;
+  heading?: number;
+  accuracyMeters?: number;
+}
+
+export function postDriverTelemetry(reading: DriverPhoneTelemetryReading, sessionToken: string | undefined): Promise<{ success: true }> {
+  return fetch('/api/driver/telemetry', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...legacyAuthHeaders(sessionToken) },
+    body: JSON.stringify(reading),
+  }).then((res) => asJson(res, 'تعذر إرسال موقعك الحالي.'));
+}

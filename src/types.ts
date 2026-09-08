@@ -367,7 +367,7 @@ export type SpeedProfile = 'STOPPED' | 'SLOW' | 'NORMAL' | 'FAST';
 export interface TelemetryObservation {
   observationId: string;
   sourceEventId: string;
-  source: 'SIMULATION' | 'DEVICE' | 'GPS_PROVIDER';
+  source: 'SIMULATION' | 'DEVICE' | 'GPS_PROVIDER' | 'DRIVER_PHONE';
   busId: string;
   tripId: string | null;
   sequence: number;
@@ -419,7 +419,7 @@ export interface CurrentLocation {
   accuracy: number | null;
   occurredAt: string;
   receivedAt: string;
-  source: 'DEVICE' | 'GPS_PROVIDER' | 'SIMULATION';
+  source: 'DEVICE' | 'GPS_PROVIDER' | 'SIMULATION' | 'DRIVER_PHONE';
   freshness: LocationFreshness;
 }
 

@@ -3,6 +3,7 @@ import { telemetryDeviceRepository } from '../repositories/telemetryDeviceReposi
 import { tripRepository } from '../repositories/tripRepository';
 import { processObservation } from './CurrentLocationProjectionService';
 import { captureEtaAccuracySnapshot } from './EtaAccuracyService';
+import { getOrCreateDriverPhoneDevice } from './TelemetryDeviceService';
 import type { TelemetryObservation } from '../domain/telemetryContract';
 
 // THE telemetry ingestion boundary (spec Phase 4B §1/§124). This is the one
@@ -18,11 +19,17 @@ export class TelemetryCorrelationError extends Error {}
 export class TelemetryNotFoundError extends Error {}
 export class TelemetryConflictError extends Error {}
 
-/** The authenticated device identity resolved by requireTelemetryDevice — never trust anything else for busId/source. */
+/**
+ * The authenticated device identity resolved by requireTelemetryDevice —
+ * never trust anything else for busId/source. 'DRIVER_PHONE' is the one
+ * exception to "resolved by requireTelemetryDevice": ingestDriverPhoneObservation
+ * below constructs this shape itself, after verifying the caller's own
+ * session identity owns the trip — see that function's doc comment.
+ */
 export interface AuthenticatedDevice {
   id: string;
   busId: string;
-  providerType: 'DEVICE' | 'GPS_PROVIDER';
+  providerType: 'DEVICE' | 'GPS_PROVIDER' | 'DRIVER_PHONE';
 }
 
 /**
@@ -252,4 +259,56 @@ export function ingestObservation(device: AuthenticatedDevice, payload: Telemetr
     }
     throw new TelemetryConflictError('يوجد رصد GPS آخر بنفس sourceEventId ببيانات مختلفة — تم رفض الطلب دون تعديل السجل الأصلي.');
   }
+}
+
+/** The wire payload a driver's own phone submits — a trip claim to verify against their real session, plus the same coordinate fields every producer sends. */
+export interface DriverPhoneTelemetryPayload {
+  tripId: unknown;
+  sourceEventId: unknown;
+  occurredAt?: unknown;
+  latitude: unknown;
+  longitude: unknown;
+  speedKmh?: unknown;
+  heading?: unknown;
+  accuracyMeters?: unknown;
+}
+
+/**
+ * Real-pilot GPS without dedicated hardware (added alongside the existing
+ * device-secret path, never replacing it). The caller must already be a
+ * verified, authenticated driver (requireDriverIdentity, checked by the
+ * route before this is ever called) — this function's own job is only to
+ * verify that driver genuinely owns the claimed trip (never trust the
+ * client's word for that alone) before funneling into the exact same
+ * ingestObservation pipeline every other producer (simulator-adjacent
+ * hardware, GPS provider) already uses. No new table, no new projection
+ * logic, no duplicated validation — a driver's phone becomes just another
+ * authenticated telemetry producer.
+ */
+export function ingestDriverPhoneObservation(driverId: string, payload: DriverPhoneTelemetryPayload): IngestionOutcome {
+  if (typeof payload.tripId !== 'string' || !payload.tripId) {
+    throw new TelemetryValidationError('tripId مطلوب.');
+  }
+  const trip = tripRepository.findById(payload.tripId);
+  if (!trip) throw new TelemetryNotFoundError('الرحلة المحددة غير موجودة.');
+  if (trip.driverId !== driverId) {
+    // Same "reject outright, never leak whether the trip exists" posture
+    // as correlate() above — a driver can never probe another driver's trip.
+    throw new TelemetryCorrelationError('لا يمكنك مشاركة موقعك لرحلة لا تخصّك.');
+  }
+
+  const device = getOrCreateDriverPhoneDevice(trip.busId);
+  return ingestObservation(
+    { id: device.id, busId: device.busId, providerType: 'DRIVER_PHONE' },
+    {
+      sourceEventId: payload.sourceEventId,
+      tripId: trip.id,
+      occurredAt: typeof payload.occurredAt === 'string' ? payload.occurredAt : new Date().toISOString(),
+      latitude: payload.latitude,
+      longitude: payload.longitude,
+      speedKmh: payload.speedKmh,
+      heading: payload.heading,
+      accuracyMeters: payload.accuracyMeters,
+    }
+  );
 }

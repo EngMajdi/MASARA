@@ -1,6 +1,7 @@
 import { Router, type Response } from 'express';
 import {
   ingestObservation,
+  ingestDriverPhoneObservation,
   TelemetryValidationError,
   TelemetryCorrelationError,
   TelemetryNotFoundError,
@@ -8,7 +9,7 @@ import {
   type TelemetryIngestionPayload,
 } from '../services/TelemetryIngestionService';
 import { telemetryObservationRepository } from '../repositories/telemetryObservationRepository';
-import { requireTelemetryDevice, requireTelemetryReader, requireOperationalUser, requireVerifiedEmail } from '../services/authz';
+import { requireTelemetryDevice, requireTelemetryReader, requireOperationalUser, requireVerifiedEmail, requireDriverIdentity } from '../services/authz';
 import { getCurrentLocation, listFleetCurrentLocations, type CurrentLocationView } from '../services/CurrentLocationProjectionService';
 
 // The telemetry ingestion boundary (Phase 4B §13) — one endpoint, one
@@ -40,6 +41,29 @@ telemetryRouter.post('/api/telemetry/observations', (req, res) => {
     // idempotent success, not an error (spec §23) — 200, not 201, to
     // distinguish "already had this" from "just created this" while still
     // returning the same observation payload either way.
+    res.status(result.kind === 'created' ? 201 : 200).json({ success: true, ...result });
+  } catch (err) {
+    handleTelemetryError(err, res);
+  }
+});
+
+// Real-pilot GPS without dedicated hardware: a driver's own phone, sharing
+// its own location for a trip that driver's own session actually owns.
+// Identity comes exclusively from the driver's verified session token
+// (requireVerifiedEmail + requireDriverIdentity — the exact same pair
+// every other /api/driver/* route already uses), never from a client-
+// supplied driverId. Ownership of the claimed tripId is re-verified inside
+// ingestDriverPhoneObservation itself — this route never trusts the body
+// beyond that it's a well-formed request.
+telemetryRouter.post('/api/driver/telemetry', (req, res) => {
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireDriverIdentity(identity.email);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
+  const body = (req.body ?? {}) as { tripId: unknown; sourceEventId: unknown; occurredAt?: unknown; latitude: unknown; longitude: unknown; speedKmh?: unknown; heading?: unknown; accuracyMeters?: unknown };
+  try {
+    const result = ingestDriverPhoneObservation(guard.driver.id, body);
     res.status(result.kind === 'created' ? 201 : 200).json({ success: true, ...result });
   } catch (err) {
     handleTelemetryError(err, res);
