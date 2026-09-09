@@ -21,6 +21,9 @@ export const recommendationRepository = {
       .from(aiRecommendations)
       .where(and(eq(aiRecommendations.tripId, tripId), eq(aiRecommendations.status, 'pending')))
       .all(),
+  findByTripId: (tripId: string) => db.select().from(aiRecommendations).where(eq(aiRecommendations.tripId, tripId)).all(),
+  /** Scoped cleanup when the owning trip is being removed (trip deletion's own FK chain) — never a blanket wipe. Caller must have already removed dependent actions/actionVerifications. */
+  deleteByTripId: (tripId: string) => db.delete(aiRecommendations).where(eq(aiRecommendations.tripId, tripId)).run(),
   update: (id: string, changes: RecommendationUpdate) =>
     db.update(aiRecommendations).set({ ...changes, updatedAt: new Date() }).where(eq(aiRecommendations.id, id)).run(),
 

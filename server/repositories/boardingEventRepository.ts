@@ -11,4 +11,6 @@ export const boardingEventRepository = {
     return row;
   },
   findByTripId: (tripId: string) => db.select().from(boardingEvents).where(eq(boardingEvents.tripId, tripId)).all(),
+  /** Scoped cleanup when a governed trip is being removed — never a blanket wipe. */
+  deleteByTripId: (tripId: string) => db.delete(boardingEvents).where(eq(boardingEvents.tripId, tripId)).run(),
 };

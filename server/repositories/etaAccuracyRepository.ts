@@ -92,4 +92,7 @@ export const etaAccuracyRepository = {
       .all(),
 
   clear: () => db.delete(etaAccuracyObservations).run(),
+
+  /** Scoped cleanup for a single governed trip being removed — never a blanket wipe. */
+  deleteByTripId: (tripId: string) => db.delete(etaAccuracyObservations).where(eq(etaAccuracyObservations.tripId, tripId)).run(),
 };

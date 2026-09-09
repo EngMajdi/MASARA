@@ -3,6 +3,7 @@ import { db, type DbOrTx } from '../../database/client';
 import { students } from '../../database/schema';
 
 type NewGovernedStudent = typeof students.$inferInsert;
+type GovernedStudentUpdate = Partial<typeof students.$inferInsert>;
 
 export const studentRepository = {
   findAll: () => db.select().from(students).all(),
@@ -23,4 +24,7 @@ export const studentRepository = {
     executor.insert(students).values(row).run();
     return row;
   },
+  /** Phase 15.5 — used only to unassign a student from a bus being deleted (busId: null). Never deletes or otherwise alters a real student record. */
+  update: (id: string, changes: GovernedStudentUpdate) =>
+    db.update(students).set(changes).where(eq(students.id, id)).run(),
 };

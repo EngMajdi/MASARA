@@ -28,4 +28,6 @@ export const routeRepository = {
   },
   updateStop: (id: string, changes: RouteStopUpdate) => db.update(routeStops).set({ ...changes, updatedAt: new Date() }).where(eq(routeStops.id, id)).run(),
   deleteStop: (id: string) => db.delete(routeStops).where(eq(routeStops.id, id)).run(),
+  /** Phase 15.5 — deletion only ever happens through FleetProvisioningService.deleteRoute, which deletes this route's own stops first — never called against a route a trip still references (the FK would reject it anyway). */
+  deleteById: (id: string) => db.delete(routes).where(eq(routes.id, id)).run(),
 };

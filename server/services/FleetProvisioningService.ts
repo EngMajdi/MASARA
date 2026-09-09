@@ -5,6 +5,20 @@ import { tripRepository } from '../repositories/tripRepository';
 import { legacyBusRepository } from '../repositories/legacyBusRepository';
 import { userRepository } from '../repositories/userRepository';
 import { legacyUserRepository } from '../repositories/legacyUserRepository';
+import { studentRepository } from '../repositories/studentRepository';
+import { journeyRepository } from '../repositories/journeyRepository';
+import { boardingEventRepository } from '../repositories/boardingEventRepository';
+import { notificationRepository } from '../repositories/notificationRepository';
+import { telemetryObservationRepository } from '../repositories/telemetryObservationRepository';
+import { telemetryDeviceRepository } from '../repositories/telemetryDeviceRepository';
+import { currentLocationProjectionRepository } from '../repositories/currentLocationProjectionRepository';
+import { etaAccuracyRepository } from '../repositories/etaAccuracyRepository';
+import { recommendationRepository } from '../repositories/recommendationRepository';
+import { actionRepository } from '../repositories/actionRepository';
+import { actionVerificationRepository } from '../repositories/actionVerificationRepository';
+import { predictionRepository } from '../repositories/predictionRepository';
+import { incidentRepository } from '../repositories/incidentRepository';
+import { auditRepository } from '../repositories/auditRepository';
 
 // Phase 15 — Pilot Hardening: the one real cross-entity validation rule set
 // in the minimum live fleet-provisioning surface (server/routes/fleetRoutes.ts).
@@ -148,4 +162,109 @@ export function assignDriverToBus(busId: string, driverId: string | null) {
   if (legacyUserId && driver) {
     legacyBusRepository.updateDriverId(legacyBus.id, legacyUserId, driver.name);
   }
+}
+
+export class FleetDeletionError extends Error {}
+
+/**
+ * Phase 15.5 — closes the one gap Phase 15's own fleet-provisioning
+ * surface never had: a way to remove a bus/route/trip once created,
+ * without direct database access. Built specifically so pilot/test data
+ * (created through the real UI while proving the system works) can be
+ * cleaned up the same way it was created — through the app itself.
+ *
+ * Deletes a trip's own dependents in the exact FK order
+ * database/seed/seed.ts's own clearAll() already documents and this
+ * codebase's test suite already exercises: actionVerifications -> actions
+ * -> aiRecommendations -> predictions -> notifications ->
+ * eta_accuracy_observations -> current_location_projection ->
+ * telemetry_observations -> boarding_events -> journeys -> the trip
+ * itself. Never touches the bus, the route, or any student — those are
+ * this trip's parents/participants, not its own history.
+ *
+ * Two tables get a narrower treatment, not a delete: audit_logs (this
+ * codebase's own append-only historical record — its content is never
+ * rewritten, only the now-stale denormalized tripId reference is cleared,
+ * see auditRepository.clearTripId's own doc comment) and incidents (a
+ * real safety event never disappears just because the trip it happened
+ * on was cleaned up later — same tripId-only clearing).
+ *
+ * Sequential writes, not wrapped in a transaction (matching
+ * assignDriverToBus's own precedent for this file's bounded,
+ * admin-triggered operations): the ordering itself makes a partial
+ * failure safe — a child row deleted without its parent trip yet gone is
+ * a self-resolving harmless no-op, never a dangling foreign key.
+ */
+export function deleteTrip(tripId: string): void {
+  const trip = tripRepository.findById(tripId);
+  if (!trip) throw new FleetDeletionError('الرحلة المحددة غير موجودة.');
+
+  for (const recommendation of recommendationRepository.findByTripId(tripId)) {
+    for (const action of actionRepository.findByRecommendationId(recommendation.id)) {
+      actionVerificationRepository.deleteByActionId(action.id);
+    }
+    actionRepository.deleteByRecommendationId(recommendation.id);
+  }
+  recommendationRepository.deleteByTripId(tripId);
+  predictionRepository.deleteByTripId(tripId);
+
+  incidentRepository.clearTripId(tripId);
+  auditRepository.clearTripId(tripId);
+
+  notificationRepository.deleteByTripId(tripId);
+  etaAccuracyRepository.deleteByTripId(tripId);
+  currentLocationProjectionRepository.deleteByTripId(tripId);
+  telemetryObservationRepository.deleteByTripId(tripId);
+  boardingEventRepository.deleteByTripId(tripId);
+  journeyRepository.deleteByTripId(tripId);
+  tripRepository.deleteById(tripId);
+}
+
+/**
+ * Refuses if any trip still references this bus (spec: never silently
+ * cascade a whole fleet's operational history away just to remove one
+ * bus — the caller must delete those trips first via deleteTrip). Any
+ * student still assigned to this bus is honestly unassigned (busId ->
+ * null) — never deleted; a bus going away is never a reason to lose a
+ * real child's record. Also removes the matching legacy bus createBus
+ * itself created (the same busNumber bridge every other Phase 15/15.5
+ * function already uses) and this bus's own telemetry devices/
+ * current-location row.
+ */
+export function deleteBus(busId: string): void {
+  const bus = busRepository.findById(busId);
+  if (!bus) throw new FleetDeletionError('الحافلة المحددة غير موجودة.');
+  if (tripRepository.findByBusId(busId).length > 0) {
+    throw new FleetDeletionError('لا يمكن حذف حافلة لها رحلات مرتبطة بها — يجب حذف رحلاتها أولاً.');
+  }
+
+  for (const student of studentRepository.findByBusId(busId)) {
+    studentRepository.update(student.id, { busId: null });
+  }
+
+  telemetryDeviceRepository.deleteByBusId(busId);
+  currentLocationProjectionRepository.deleteByBusId(busId);
+
+  const legacyBus = findMatchingLegacyBus(bus.busNumber);
+  if (legacyBus) legacyBusRepository.deleteById(legacyBus.id);
+
+  busRepository.deleteById(busId);
+}
+
+/**
+ * Refuses if any trip still references this route (delete those trips
+ * first via deleteTrip — same policy as deleteBus). Deletes the route's
+ * own stops first (a stop has no independent meaning outside its route).
+ */
+export function deleteRoute(routeId: string): void {
+  const route = routeRepository.findById(routeId);
+  if (!route) throw new FleetDeletionError('المسار المحدد غير موجود.');
+  if (tripRepository.findAll().some((t) => t.routeId === routeId)) {
+    throw new FleetDeletionError('لا يمكن حذف مسار له رحلات مرتبطة به — يجب حذف رحلاته أولاً.');
+  }
+
+  for (const stop of routeRepository.findStopsByRouteId(routeId)) {
+    routeRepository.deleteStop(stop.id);
+  }
+  routeRepository.deleteById(routeId);
 }

@@ -13,4 +13,6 @@ export const predictionRepository = {
   findLatestByTripId: (tripId: string) =>
     db.select().from(predictions).where(eq(predictions.tripId, tripId)).orderBy(desc(predictions.createdAt)).get(),
   findById: (id: string) => db.select().from(predictions).where(eq(predictions.id, id)).get(),
+  /** Scoped cleanup when the owning trip is being removed — never a blanket wipe. */
+  deleteByTripId: (tripId: string) => db.delete(predictions).where(eq(predictions.tripId, tripId)).run(),
 };

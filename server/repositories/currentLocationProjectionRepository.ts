@@ -82,6 +82,10 @@ export const currentLocationProjectionRepository = {
 
   clear: () => db.delete(currentLocationProjection).run(),
 
+  /** Scoped cleanup when a governed bus/trip is being removed — never a blanket wipe. */
+  deleteByBusId: (busId: string) => db.delete(currentLocationProjection).where(eq(currentLocationProjection.busId, busId)).run(),
+  deleteByTripId: (tripId: string) => db.delete(currentLocationProjection).where(eq(currentLocationProjection.tripId, tripId)).run(),
+
   /**
    * Rebuilds the entire projection from `telemetry_observations` in ONE
    * bounded query (spec §16/§21/§40 — no N+1, no per-bus loop) using a

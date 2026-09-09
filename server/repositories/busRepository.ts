@@ -16,4 +16,6 @@ export const busRepository = {
     executor.insert(buses).values(row).run();
     return row;
   },
+  /** Phase 15.5 — deletion only ever happens through FleetProvisioningService.deleteBus, which unassigns any students first and clears this bus's own telemetry rows — never called against a bus a trip still references (the FK would reject it anyway). */
+  deleteById: (id: string) => db.delete(buses).where(eq(buses.id, id)).run(),
 };

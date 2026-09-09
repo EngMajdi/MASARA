@@ -54,4 +54,8 @@ export const telemetryObservationRepository = {
       .limit(limit)
       .all();
   },
+
+  /** Scoped cleanup when a governed trip or bus is being removed — never a blanket wipe of this append-only table. */
+  deleteByTripId: (tripId: string) => db.delete(telemetryObservations).where(eq(telemetryObservations.tripId, tripId)).run(),
+  deleteByBusId: (busId: string) => db.delete(telemetryObservations).where(eq(telemetryObservations.busId, busId)).run(),
 };

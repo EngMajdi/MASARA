@@ -12,4 +12,6 @@ export const actionRepository = {
   },
   findByRecommendationId: (recommendationId: string) =>
     db.select().from(actions).where(eq(actions.recommendationId, recommendationId)).all(),
+  /** Scoped cleanup when the owning recommendation is being removed (trip deletion's own FK chain) — never a blanket wipe. */
+  deleteByRecommendationId: (recommendationId: string) => db.delete(actions).where(eq(actions.recommendationId, recommendationId)).run(),
 };

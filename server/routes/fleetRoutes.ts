@@ -4,7 +4,7 @@ import { driverRepository } from '../repositories/driverRepository';
 import { routeRepository } from '../repositories/routeRepository';
 import { schoolRepository } from '../repositories/schoolRepository';
 import { requireOperationalUser, requireVerifiedEmail } from '../services/authz';
-import { createTrip, createBus, assignDriverToBus, TripValidationError } from '../services/FleetProvisioningService';
+import { createTrip, createBus, assignDriverToBus, deleteTrip, deleteBus, deleteRoute, TripValidationError, FleetDeletionError } from '../services/FleetProvisioningService';
 
 // Phase 15 — Pilot Hardening: the minimum live fleet-provisioning surface a
 // real school needs to run a controlled pilot WITHOUT database
@@ -109,6 +109,25 @@ fleetRouter.patch('/api/governed/buses/:id/assign-driver', (req, res) => {
 
   assignDriverToBus(req.params.id, driverId);
   res.json({ success: true, bus: busRepository.findById(req.params.id) });
+});
+
+// Phase 15.5 — pilot/test-data cleanup, the same way every other write here
+// works: through the app, never the database. Refuses (409) if a trip
+// still references this bus — delete the trip first.
+fleetRouter.delete('/api/governed/buses/:id', (req, res) => {
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
+  try {
+    deleteBus(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    if (err instanceof FleetDeletionError) return res.status(409).json({ error: err.message });
+    console.error('Bus deletion error:', err);
+    res.status(500).json({ error: 'حدث خطأ غير متوقع أثناء حذف الحافلة.' });
+  }
 });
 
 fleetRouter.get('/api/governed/drivers', (req, res) => {
@@ -234,6 +253,24 @@ fleetRouter.delete('/api/governed/routes/:routeId/stops/:stopId', (req, res) => 
   res.json({ success: true });
 });
 
+// Phase 15.5 — pilot/test-data cleanup, same policy as bus deletion above:
+// refuses (409) if a trip still references this route.
+fleetRouter.delete('/api/governed/routes/:id', (req, res) => {
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
+  try {
+    deleteRoute(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    if (err instanceof FleetDeletionError) return res.status(409).json({ error: err.message });
+    console.error('Route deletion error:', err);
+    res.status(500).json({ error: 'حدث خطأ غير متوقع أثناء حذف المسار.' });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Trips
 // ---------------------------------------------------------------------------
@@ -267,5 +304,25 @@ fleetRouter.post('/api/governed/trips', (req, res) => {
     if (err instanceof TripValidationError) return res.status(422).json({ error: err.message });
     console.error('Trip creation error:', err);
     res.status(500).json({ error: 'حدث خطأ غير متوقع أثناء إنشاء الرحلة.' });
+  }
+});
+
+// Phase 15.5 — pilot/test-data cleanup. Deletes this trip's own journeys,
+// notifications, boarding events, and telemetry history (see
+// FleetProvisioningService.deleteTrip's own doc comment for the exact FK
+// order) — never the bus, the route, or any student.
+fleetRouter.delete('/api/governed/trips/:id', (req, res) => {
+  const identity = requireVerifiedEmail(req.headers.authorization);
+  if (identity.ok === false) return res.status(identity.status).json({ error: identity.error });
+  const guard = requireOperationalUser(identity.email);
+  if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
+
+  try {
+    deleteTrip(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    if (err instanceof FleetDeletionError) return res.status(409).json({ error: err.message });
+    console.error('Trip deletion error:', err);
+    res.status(500).json({ error: 'حدث خطأ غير متوقع أثناء حذف الرحلة.' });
   }
 });

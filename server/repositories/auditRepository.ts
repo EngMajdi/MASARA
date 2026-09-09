@@ -63,4 +63,16 @@ export const auditRepository = {
 
     return filter.limit ? query.limit(filter.limit).all() : query.all();
   },
+
+  /**
+   * The one exception to "immutable, append-only, no UPDATE/DELETE route"
+   * (see this table's own schema comment): when the owning trip is
+   * removed, its denormalized tripId reference on historical audit rows
+   * would otherwise dangle. This clears ONLY that one column (tripId ->
+   * null, exactly like telemetry_observations' own documented "historical
+   * correlation survives a stale reference" precedent) — eventType,
+   * actorId, previousState, newState, and metadata are never touched, so
+   * the actual historical fact this row records is unchanged.
+   */
+  clearTripId: (tripId: string) => db.update(auditLogs).set({ tripId: null }).where(eq(auditLogs.tripId, tripId)).run(),
 };

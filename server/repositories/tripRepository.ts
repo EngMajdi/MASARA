@@ -18,4 +18,6 @@ export const tripRepository = {
     db.insert(trips).values(row).run();
     return row;
   },
+  /** Phase 15.5 — deletion only ever happens through FleetProvisioningService.deleteTrip, which clears this trip's own dependents (journeys, boarding_events, notifications, telemetry, ETA snapshots) first — never called directly against a trip with rows still referencing it (the FK would reject it anyway). */
+  deleteById: (id: string) => db.delete(trips).where(eq(trips.id, id)).run(),
 };

@@ -16,4 +16,6 @@ export const telemetryDeviceRepository = {
   findByBusId: (busId: string) => db.select().from(telemetryDevices).where(eq(telemetryDevices.busId, busId)).all(),
   update: (id: string, changes: TelemetryDeviceUpdate) =>
     db.update(telemetryDevices).set({ ...changes, updatedAt: new Date() }).where(eq(telemetryDevices.id, id)).run(),
+  /** Scoped cleanup when a governed bus is being removed — never a blanket wipe. */
+  deleteByBusId: (busId: string) => db.delete(telemetryDevices).where(eq(telemetryDevices.busId, busId)).run(),
 };

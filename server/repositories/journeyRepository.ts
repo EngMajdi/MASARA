@@ -18,6 +18,8 @@ export const journeyRepository = {
   findByStudentId: (studentId: string) =>
     db.select().from(journeys).where(eq(journeys.studentId, studentId)).orderBy(desc(journeys.createdAt)).all(),
   findByTripId: (tripId: string) => db.select().from(journeys).where(eq(journeys.tripId, tripId)).all(),
+  /** Scoped cleanup when a governed trip is being removed — never a blanket wipe. */
+  deleteByTripId: (tripId: string) => db.delete(journeys).where(eq(journeys.tripId, tripId)).run(),
   update: (id: string, changes: JourneyUpdate) =>
     db.update(journeys).set({ ...changes, updatedAt: new Date() }).where(eq(journeys.id, id)).run(),
 

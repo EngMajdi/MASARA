@@ -83,4 +83,7 @@ export const notificationRepository = {
   },
 
   clear: () => db.delete(notifications).run(),
+
+  /** Scoped cleanup for a single governed trip being removed (e.g. deleting test/pilot data) — never a blanket wipe. */
+  deleteByTripId: (tripId: string) => db.delete(notifications).where(eq(notifications.tripId, tripId)).run(),
 };
