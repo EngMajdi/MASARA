@@ -2,11 +2,11 @@ import express from 'express';
 import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 import {
-  INITIAL_SCHOOLS,
   INITIAL_ROUTES,
   INITIAL_NOTIFICATIONS,
   INITIAL_WORKFLOW_STEPS
 } from './src/mockData';
+import type { School } from './src/types';
 import { agentRouter } from './server/routes/agentRoutes';
 import { simulationRouter } from './server/routes/simulationRoutes';
 import { operationsRouter } from './server/routes/operationsRoutes';
@@ -44,6 +44,7 @@ import { userRepository } from './server/repositories/userRepository';
 import { driverRepository } from './server/repositories/driverRepository';
 import { studentRepository } from './server/repositories/studentRepository';
 import { busRepository } from './server/repositories/busRepository';
+import { schoolRepository } from './server/repositories/schoolRepository';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -98,8 +99,35 @@ app.use(contactRouter);
 // Phase 15: minimum live fleet provisioning (governed buses/routes/stops/trips) — likewise additive.
 app.use(fleetRouter);
 
+// Phase 15.5 — the exact "never migrated off in-memory fiction" gap Phase
+// 7K's own comment below already flags for buses/students, just never
+// actually closed for schools: this used to be `let schools =
+// [...INITIAL_SCHOOLS]` — two entirely fabricated demo schools
+// (src/mockData.ts) with fabricated student/bus counts, served forever,
+// completely independent of what a real pilot's admin actually
+// provisions. A real admin doing a real pilot never sees their own real
+// school here, and the AI chatbot's own context (schoolsData below) was
+// being told these two fake schools were "current" data.
+//
+// Fixed by computing this list live, every time, from the real governed
+// schoolRepository (the same one genesis.ts/FleetProvisioningService
+// already treat as the source of truth) — never a cached/stale snapshot,
+// since totalStudents/activeBusesCount must stay honest as a real pilot's
+// fleet grows. An empty result (no school provisioned yet) is an honest
+// empty array, never a fabricated placeholder.
+function getLegacySchoolsView(): School[] {
+  return schoolRepository.findAll().map((school) => ({
+    id: school.id,
+    nameAr: school.nameAr,
+    location: { lat: school.lat, lng: school.lng, address: school.address },
+    startTime: school.startTime,
+    endTime: school.endTime,
+    totalStudents: studentRepository.findAll().filter((s) => s.schoolId === school.id).length,
+    activeBusesCount: busRepository.findAll().filter((b) => b.schoolId === school.id).length,
+  }));
+}
+
 // In-memory application state
-let schools = [...INITIAL_SCHOOLS];
 // Phase 7K — buses/students moved off this in-memory pattern entirely
 // (previously `let buses = [...INITIAL_BUSES]` / `let students = [...]`,
 // the same never-shared-across-processes defect class Phase 7H found and
@@ -197,7 +225,7 @@ app.get('/api/all-data', (req, res) => {
   const guard = requireLegacySession(req.headers.authorization);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
   res.json({
-    schools,
+    schools: getLegacySchoolsView(),
     buses: legacyBusRepository.findAll(),
     students: legacyStudentRepository.findAll(),
     routes,
@@ -762,7 +790,7 @@ app.patch('/api/students/:id/assign-parent', (req, res) => {
 app.get('/api/schools', (req, res) => {
   const guard = requireLegacySession(req.headers.authorization);
   if (guard.ok === false) return res.status(guard.status).json({ error: guard.error });
-  res.json(schools);
+  res.json(getLegacySchoolsView());
 });
 
 app.get('/api/buses', (req, res) => {
@@ -1014,7 +1042,9 @@ app.post('/api/ai/optimize-routes', async (req, res) => {
     const ai = getGeminiClient();
     const { schoolId, trafficCondition } = req.body;
 
-    const schoolObj = schools.find((s) => s.id === schoolId) || schools[0];
+    const realSchools = getLegacySchoolsView();
+    const schoolObj = realSchools.find((s) => s.id === schoolId) || realSchools[0];
+    if (!schoolObj) return res.status(422).json({ error: 'لا توجد مدرسة مهيأة في النظام بعد.' });
     const schoolStudents = legacyStudentRepository.findAll().filter((s) => s.schoolId === schoolObj.id);
 
     const prompt = `
@@ -1360,7 +1390,7 @@ function generateLocalAdvisorAnswer(
   userRole: string,
   busesData: LegacyBusView[],
   studentsData: LegacyStudentView[],
-  schoolsData: typeof schools,
+  schoolsData: School[],
   routesData: typeof routes
 ): string {
   const q = (query || '').toLowerCase().trim();
@@ -1490,7 +1520,7 @@ app.post('/api/ai/ask-advisor', async (req, res) => {
 
     const busesData = currentBuses && Array.isArray(currentBuses) && currentBuses.length > 0 ? currentBuses : legacyBusRepository.findAll();
     const studentsData = currentStudents && Array.isArray(currentStudents) && currentStudents.length > 0 ? currentStudents : legacyStudentRepository.findAll();
-    const schoolsData = currentSchools && Array.isArray(currentSchools) && currentSchools.length > 0 ? currentSchools : schools;
+    const schoolsData = currentSchools && Array.isArray(currentSchools) && currentSchools.length > 0 ? currentSchools : getLegacySchoolsView();
     const routesData = currentRoutes && Array.isArray(currentRoutes) && currentRoutes.length > 0 ? currentRoutes : routes;
 
     // Phase 15 — data-honesty fix: this context is the current snapshot of
